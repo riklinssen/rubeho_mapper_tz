@@ -1,0 +1,95 @@
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Data files - exclude all data but keep folder structure via .gitkeep
+data/raw/*
+data/processed/*
+data/temp/*
+
+# But keep the .gitkeep files to maintain folder structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/temp/.gitkeep
+
+# General data file exclusions
+*.csv
+*.xlsx
+*.xls
+*.shp
+*.shx
+*.dbf
+*.prj
+*.tif
+*.tiff
+*.gpkg
+*.geojson
+*.tmp
+
+# Output files
+output/
+*.log
+
+# Environment and config files with sensitive info
+.env
+config/secrets.py
+config/api_keys.py
+
+# Operating system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Streamlit
+.streamlit/secrets.toml
