@@ -40,22 +40,64 @@ region_plan_file = PROCESSED_DATA_DIR / "region_coverage_plan.json"
 with open(region_plan_file, 'r') as f:
     region_plan = json.load(f)
 
-print(f"Region plan loaded:")
-print(f"  - Program regions: {region_plan['program_regions']}")
-print(f"  - Adjacent regions: {region_plan['adjacent_regions']}")
-print(f"  - Treatment wards matched: {region_plan['treatment_wards']['matched_treatment_wards']}")
-
-# Load the relevant wards shapefile with flags
-relevant_wards_file = PROCESSED_DATA_DIR / "relevant_wards_with_flags.geojson"
-gdf_relevant = gpd.read_file(relevant_wards_file)
-
-print(f"Loaded relevant wards: {len(gdf_relevant)} wards")
-print(f"  - Treatment wards: {gdf_relevant['is_treatment'].sum()}")
-print(f"  - Program region wards: {gdf_relevant['is_program_region'].sum()}")
-print(f"  - Adjacent region wards: {gdf_relevant['is_adjacent_region'].sum()}")
-
+# Print treatment locations
+if 'treatment_ward_names' in region_plan['program_locations']:
+    treatment_wards = region_plan['program_locations']['treatment_ward_names']
+    treatment_ward_districts = region_plan['program_locations']['treatment_ward_district_list']
+    
+    print(f"\nTREATMENT LOCATIONS ({len(treatment_wards)} wards):")
+    for ward_district in treatment_ward_districts:
+        print(f"  • {ward_district}")
+        
+    # Print treatment villages if available
+    if 'treatment_villages' in region_plan['program_locations']:
+        treatment_villages = region_plan['program_locations']['treatment_villages']
+        print(f"\nTREATMENT VILLAGES ({len(treatment_villages)} villages):")
+        for village in treatment_villages:
+            print(f"  • {village}")
+else:
+    print(f"\nTREATMENT LOCATIONS ({region_plan['program_locations']['matched_treatment_wards']} wards):")
+    print("  (Ward names not available in JSON - update previous script)")
+# Print control locations  
+if 'control_ward_names' in region_plan['program_locations']:
+    control_wards = region_plan['program_locations']['control_ward_names']
+    control_ward_districts = region_plan['program_locations']['control_ward_district_list']
+    
+    print(f"\nPROGRAM CONTROL LOCATIONS ({len(control_wards)} wards):")
+    for ward_district in control_ward_districts:
+        print(f"  • {ward_district}")
+        
+    # Print control villages if available
+    if 'control_villages' in region_plan['program_locations']:
+        control_villages = region_plan['program_locations']['control_villages']
+        print(f"\nPROGRAM CONTROL VILLAGES ({len(control_villages)} villages):")
+        for village in control_villages:
+            print(f"  • {village}")
+else:
+    print(f"\nPROGRAM CONTROL LOCATIONS ({region_plan['program_locations']['matched_control_wards']} wards):")
 
 # %%
+##load in geojson 
+# Load the relevant wards shapefile with flags
+print("Loading relevant wards GeoJSON file...")
+relevant_wards_file = PROCESSED_DATA_DIR / "relevant_wards_with_flags.geojson"
+
+if relevant_wards_file.exists():
+    gdf_relevant = gpd.read_file(relevant_wards_file)
+    print(f"✅ Successfully loaded relevant wards: {len(gdf_relevant)} wards")
+    print(f"  - Treatment wards: {gdf_relevant['is_treatment'].sum()}")
+    print(f"  - Program control wards: {gdf_relevant['is_program_control'].sum()}")
+    print(f"  - Program region wards: {gdf_relevant['is_program_region'].sum()}")
+    print(f"  - Adjacent region wards: {gdf_relevant['is_adjacent_region'].sum()}")
+else:
+    print(f"❌ File not found: {relevant_wards_file}")
+    print("Available files in processed directory:")
+    for file in PROCESSED_DATA_DIR.iterdir():
+        print(f"  📄 {file.name}")
+    raise FileNotFoundError(f"Required file not found: {relevant_wards_file}")
+
+
+
 # Convert to UTM for accurate grid creation
 gdf_utm = gdf_relevant.to_crs(TARGET_CRS)
 

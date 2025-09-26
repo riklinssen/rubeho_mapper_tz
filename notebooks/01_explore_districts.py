@@ -698,7 +698,63 @@ region_info['spatial_bounds']['all_regions'] = {
     'max_longitude': float(all_bounds[2]),
     'max_latitude': float(all_bounds[3])
 }
+treatment_ward_names = gdf_relevant[gdf_relevant['is_treatment'] == True]['ward_name'].tolist()
+control_ward_names = gdf_relevant[gdf_relevant['is_program_control'] == True]['ward_name'].tolist()
 
+# Add the ward name lists to region_info
+region_info['program_locations']['treatment_ward_names'] = treatment_ward_names
+region_info['program_locations']['control_ward_names'] = control_ward_names
+
+
+# Extract village information from original program data
+# Get treatment villages
+treatment_villages = []
+for _, row in treatment_locations.iterrows():
+    villages_in_ward = df_program[
+        (df_program['Ward'] == row['Ward']) & 
+        (df_program['District'] == row['District']) &
+        ((df_program['ARR'].astype(str).str.strip().str.upper() == 'YES') | 
+         (df_program['REDD'].astype(str).str.strip().str.upper() == 'YES'))
+    ]['Village'].unique()
+    
+    for village in villages_in_ward:
+        treatment_villages.append(f"{village} village in {row['Ward']} ward, {row['District']} district")
+
+# Get control villages
+control_villages = []
+for _, row in control_locations.iterrows():
+    villages_in_ward = df_program[
+        (df_program['Ward'] == row['Ward']) & 
+        (df_program['District'] == row['District']) &
+        ~((df_program['ARR'].astype(str).str.strip().str.upper() == 'YES') | 
+          (df_program['REDD'].astype(str).str.strip().str.upper() == 'YES'))
+    ]['Village'].unique()
+    
+    for village in villages_in_ward:
+        control_villages.append(f"{village} village in {row['Ward']} ward, {row['District']} district")
+
+# Add village information to JSON
+region_info['program_locations']['treatment_villages'] = treatment_villages
+region_info['program_locations']['control_villages'] = control_villages
+
+# Also add ward-district combinations for better identification
+treatment_ward_district_list = []
+control_ward_district_list = []
+
+for _, row in gdf_relevant[gdf_relevant['is_treatment'] == True].iterrows():
+    treatment_ward_district_list.append(f"{row['ward_name']} in {row['dist_name']} district")
+
+for _, row in gdf_relevant[gdf_relevant['is_program_control'] == True].iterrows():
+    control_ward_district_list.append(f"{row['ward_name']} in {row['dist_name']} district")
+
+region_info['program_locations']['treatment_ward_district_list'] = treatment_ward_district_list
+region_info['program_locations']['control_ward_district_list'] = control_ward_district_list
+
+print(f"Added ward and village lists to JSON:")
+print(f"  • {len(treatment_ward_names)} treatment ward names")
+print(f"  • {len(control_ward_names)} control ward names")
+print(f"  • {len(treatment_villages)} treatment villages")
+print(f"  • {len(control_villages)} control villages")
 # %%
 
 # Save the comprehensive plan
