@@ -202,16 +202,15 @@ print(f"Administrative info added to {len(parent_grid_filtered)} grid cells")
 # Convert to WGS84 and save
 print("Converting to WGS84 and saving...")
 
-print("Saving as Parquet for speed...")
 
 # Convert to WGS84
 parent_grid_web = parent_grid_filtered.to_crs(WEB_CRS)
 
 # Save as Parquet (much faster than GeoJSON)
-parquet_file = PROCESSED_DATA_DIR / "grid_500m_parent.parquet"
-parent_grid_web.to_parquet(parquet_file)
+geojson_file = PROCESSED_DATA_DIR / "grid_500m_parent.geojson"
+parent_grid_web.to_file(geojson_file, driver='GeoJSON')
 
-print(f"Saved {len(parent_grid_web)} cells as Parquet")
+print(f"Saved {len(parent_grid_web)} cells as GeoJSON")
 
 # %%
 # Create and save grid metadata
