@@ -66,13 +66,14 @@ else:
 #load data with relevant wards from programme. 
 # this is an xls sheet with some ward and district names. 
 # Load the program implementation Excel file
-excel_file = RAW_DATA_DIR / "Rubeho Villages for HH survey - v2.xlsx"
+excel_file = RAW_DATA_DIR / "VillageBoundaries_HHsurvey Updated_Sept.22.xlsx"
+
 if excel_file.exists():
     print(f"Loading program data from: {excel_file.name}")
     
     try:
         # Load the Excel file
-        df_program = pd.read_excel(excel_file, sheet_name="Villages")
+        df_program = pd.read_excel(excel_file, sheet_name="Sheet1")
         
         print(f"Shape: {df_program.shape}")
         print(f"Columns: {list(df_program.columns)}")
@@ -316,9 +317,12 @@ region_info = {
 
 # print(f"✅ Saved region coverage plan to region_coverage_plan.json")
 # %%
+
+
 #collecting treatment wards from the excel. 
+# Treatment locations: have ARR='Yes' OR REDD='Yes'
 treatment_locations = df_program[
-    (df_program['ARR'] == 1) | (df_program['REDD'] == 1)
+    (df_program['ARR'] == 'Yes') | (df_program['REDD'] == 'Yes')
 ][['Ward', 'District']].drop_duplicates()
 
 print(f"I have {len(treatment_locations)} treatment ward-district combinations")
@@ -326,15 +330,34 @@ print("\nTreatment locations:")
 for _, row in treatment_locations.iterrows():
     print(f"  • {row['Ward']} in {row['District']}")
 
+
 # %%
-#finding matches in the shapefile.
+
+# Control locations: have ARR != 'Yes' AND REDD != 'Yes' (includes NaN, 'No', empty values)
+control_locations = df_program[
+    (df_program['ARR'] != 'Yes') & (df_program['REDD'] != 'Yes')
+][['Ward', 'District', 'ARR', 'REDD']].drop_duplicates()
+
+print(f"📊 Program location breakdown:")
+print(f"  • Treatment locations: {len(treatment_locations)} ward-district combinations")
+print(f"  • Potential control locations: {len(control_locations)} ward-district combinations")
+print(f"  • Total program locations: {len(treatment_locations) + len(control_locations)}")
+
+
+all_program_locations = pd.concat([treatment_locations, control_locations], ignore_index=True)
+
+
+# %%
+#finding matches in the shapefile. Shapefile is at ward level.
 programme_wards_gdf = gdf_wards[
     (gdf_wards['reg_name'].isin(program_regions)) &
-    (gdf_wards['dist_name'].isin(treatment_locations['District'].unique()))
+    (gdf_wards['dist_name'].isin(all_program_locations['District'].unique()))
 ].copy()
 
-# confining to programme regions only. 
 
+print(f"Filtered to programme regions AND program districts: {len(programme_wards_gdf)} wards")
+print(f"Program districts: {sorted(all_program_locations['District'].unique())}")
+# %%
 # Get ward names from programme regions only
 programme_wards_gdf = gdf_wards[
     (gdf_wards['reg_name'].isin(program_regions)) &
@@ -345,98 +368,238 @@ print(f"Filtered to programme regions AND treatment districts: {len(programme_wa
 print(f"Treatment districts: {treatment_locations['District'].unique().tolist()}")
 
 
-# **ADAPTATION 3: Create ward-district pairs for precise matching**
+#  Create ward-district pairs for precise matching
 # Create ward-district combinations from shapefile
+def create_ward_district_sets(locations_df, label):
+    """Create ward-district key sets for matching"""
+    ward_district_set = set()
+    for _, row in locations_df.iterrows():
+        ward_district_key = f"{str(row['Ward']).strip().upper()}||{str(row['District']).strip().upper()}"
+        ward_district_set.add(ward_district_key)
+    return ward_district_set
+
+# Create sets for treatment and control locations
+treatment_ward_district = create_ward_district_sets(treatment_locations, "treatment")
+control_ward_district = create_ward_district_sets(control_locations, "control")
+
 shapefile_ward_district = set()
 for _, row in programme_wards_gdf.iterrows():
     ward_district_key = f"{str(row['ward_name']).strip().upper()}||{str(row['dist_name']).strip().upper()}"
     shapefile_ward_district.add(ward_district_key)
 
-# Create ward-district combinations from treatment data
-treatment_ward_district = set()
-for _, row in treatment_locations.iterrows():
-    ward_district_key = f"{str(row['Ward']).strip().upper()}||{str(row['District']).strip().upper()}"
-    treatment_ward_district.add(ward_district_key)
+# Find matches for both treatment and control
+treatment_matches = treatment_ward_district.intersection(shapefile_ward_district)
+treatment_missing = treatment_ward_district - shapefile_ward_district
+
+control_matches = control_ward_district.intersection(shapefile_ward_district)
+control_missing = control_ward_district - shapefile_ward_district
 
 
-# Find exact matches using ward-district pairs
-treatment_exact_matches_pairs = treatment_ward_district.intersection(shapefile_ward_district)
-treatment_missing_pairs = treatment_ward_district - shapefile_ward_district
 
-# Extract just the ward names from successful matches for later use
-treatment_exact_matches = set()
-for pair in treatment_exact_matches_pairs:
-    ward_name = pair.split('||')[0]
-    treatment_exact_matches.add(ward_name)
+print(f"\n📍 Matching results:")
+print(f"  Treatment matches: {len(treatment_matches)}/{len(treatment_ward_district)} ✅")
+print(f"  Control matches: {len(control_matches)}/{len(control_ward_district)} ✅")
 
-if treatment_missing_pairs:
-    print("These ward-district combinations are not in the shapefile:")
-    for pair in treatment_missing_pairs:
+if treatment_missing:
+    print(f"  ❌ Missing treatment ward-district combinations:")
+    for pair in treatment_missing:
         ward, district = pair.split('||')
-        print(f"  • {ward} in {district}")
-else:
-    print(f"✅ All {len(treatment_locations)} treatment locations matched!")
-    print(f"Matched ward-district pairs: {len(treatment_exact_matches_pairs)}")
+        print(f"    • {ward} in {district}")
+
+if control_missing:
+    print(f"  ❌ Missing control ward-district combinations:")
+    for pair in control_missing:
+        ward, district = pair.split('||')
+        print(f"    • {ward} in {district}")
+
+# %%
+
+
 
 relevant_regions = list(program_regions) + adjacent_regions
-print(f"Relevant regions: {relevant_regions}")
-
-# Filter shapefile to only relevant regions
 gdf_relevant = gdf_wards[gdf_wards['reg_name'].isin(relevant_regions)].copy()
-print(f"Filtered shapefile from {len(gdf_wards)} to {len(gdf_relevant)} wards in relevant regions")
+gdf_relevant['is_program_region'] = gdf_relevant['reg_name'].isin(program_regions)
+gdf_relevant['is_adjacent_region'] = gdf_relevant['reg_name'].isin(adjacent_regions)
 
-# **ADAPTATION 5: Create precise treatment flagging using ward-district combinations**
+
+# Initialize flags
 gdf_relevant['is_treatment'] = False
+gdf_relevant['is_program_control'] = False
+gdf_relevant['program_location_type'] = 'none'
 
-# Create ward-district key for each row in relevant shapefile
+# Create ward-district key for matching
 gdf_relevant['ward_district_key'] = (
     gdf_relevant['ward_name'].astype(str).str.strip().str.upper() + '||' + 
     gdf_relevant['dist_name'].astype(str).str.strip().str.upper()
 )
 
-# Flag treatment wards using exact ward-district matches
-gdf_relevant.loc[
-    gdf_relevant['ward_district_key'].isin(treatment_exact_matches_pairs),
-    'is_treatment'
-] = True
+# Flag treatment locations
+treatment_mask = gdf_relevant['ward_district_key'].isin(treatment_matches)
+gdf_relevant.loc[treatment_mask, 'is_treatment'] = True
+gdf_relevant.loc[treatment_mask, 'program_location_type'] = 'treatment'
 
-# Summary of treatment flagging
+# Flag control locations  
+control_mask = gdf_relevant['ward_district_key'].isin(control_matches)
+gdf_relevant.loc[control_mask, 'is_program_control'] = True
+gdf_relevant.loc[control_mask, 'program_location_type'] = 'program_control'
+
+# Verification counts
 treatment_count = gdf_relevant['is_treatment'].sum()
-print(f"\nTreatment ward flagging (using ward-district pairs):")
-print(f"  • Total wards in relevant regions: {len(gdf_relevant)}")
+control_count = gdf_relevant['is_program_control'].sum()
+
+print(f"📊 Flagging summary:")
+print(f"  • Total wards in relevant regions: {len(gdf_relevant):,}")
 print(f"  • Treatment wards flagged: {treatment_count}")
-print(f"  • Expected treatment wards: {len(treatment_exact_matches_pairs)}")
-print(f"  • Match success: {'✅' if treatment_count == len(treatment_exact_matches_pairs) else '❌'}")
+print(f"  • Program control wards flagged: {control_count}")
+print(f"  • Other wards (potential controls): {len(gdf_relevant) - treatment_count - control_count:,}")
 
-# Show treatment wards by region
-treatment_summary = gdf_relevant[gdf_relevant['is_treatment'] == True].groupby('reg_name').size()
-print(f"\nTreatment wards by region:")
-for region, count in treatment_summary.items():
-    print(f"  • {region}: {count} treatment wards")
 
-# **ADAPTATION 6: Verification - no more duplicate issues**
-print(f"\n📋 Treatment ward verification:")
-treatment_wards_flagged = gdf_relevant[gdf_relevant['is_treatment'] == True].copy()
+# %%
+# Regional breakdown
+print(f"\n🌍 Program locations by region:")
+program_summary = gdf_relevant[
+    (gdf_relevant['is_treatment'] == True) | (gdf_relevant['is_program_control'] == True)
+].groupby(['reg_name', 'program_location_type']).size().unstack(fill_value=0)
 
-for region in sorted(treatment_wards_flagged['reg_name'].unique()):
-    region_wards = treatment_wards_flagged[treatment_wards_flagged['reg_name'] == region]
-    print(f"\n{region} ({len(region_wards)} wards):")
-    for _, row in region_wards.iterrows():
-        print(f"  • {row['ward_name']} in {row['dist_name']} district")
+for region in program_summary.index:
+    treatment_count = program_summary.loc[region, 'treatment'] if 'treatment' in program_summary.columns else 0
+    control_count = program_summary.loc[region, 'program_control'] if 'program_control' in program_summary.columns else 0
+    print(f"  • {region}: {treatment_count} treatment, {control_count} program control")
 
-# Clean up the temporary column
+# Detailed verification
+print(f"\n📋 Detailed verification:")
+program_wards = gdf_relevant[gdf_relevant['program_location_type'] != 'none'].copy()
+
+for location_type in ['treatment', 'program_control']:
+    type_wards = program_wards[program_wards['program_location_type'] == location_type]
+    if len(type_wards) > 0:
+        print(f"\n{location_type.upper()} locations:")
+        for region in sorted(type_wards['reg_name'].unique()):
+            region_wards = type_wards[type_wards['reg_name'] == region]
+            print(f"  {region} ({len(region_wards)} wards):")
+            for _, row in region_wards.iterrows():
+                print(f"    • {row['ward_name']} in {row['dist_name']} district")
+
+# Clean up temporary column
 gdf_relevant = gdf_relevant.drop('ward_district_key', axis=1)
 
-
-
 # %%
-gdf_relevant['is_program_region'] = gdf_relevant['reg_name'].isin(program_regions)
-gdf_relevant['is_adjacent_region'] = gdf_relevant['reg_name'].isin(adjacent_regions)
+# Enhanced region info with treatment AND control data
+print(f"\n💾 Preparing enhanced region coverage plan...")
 
-# %%
-#check if the programme and adjacent regions are within gdf relevant. 
-print("I have", len(gdf_relevant), " wards in total")
-print("and I have",(sum(gdf_relevant['is_program_region'])+ sum(gdf_relevant['is_adjacent_region'])),"wards in relevant regions (program + adjacent)")
+region_info = {
+    'program_regions': list(program_regions),
+    'adjacent_regions': adjacent_regions,
+    'all_target_regions': YOUR_FINAL_TARGET_REGIONS,
+    'coverage_stats': {
+        'program_area_km2': float(program_area),
+        'total_area_km2': float(total_area),
+        'control_buffer_ratio': float(total_area/program_area)
+    },
+    'program_locations': {
+        'total_treatment_locations': len(treatment_locations),
+        'total_control_locations': len(control_locations),
+        'matched_treatment_wards': len(treatment_matches),
+        'matched_control_wards': len(control_matches),
+        'treatment_match_rate': len(treatment_matches) / len(treatment_locations) if len(treatment_locations) > 0 else 0,
+        'control_match_rate': len(control_matches) / len(control_locations) if len(control_locations) > 0 else 0,
+        'missing_treatment_wards': [pair.replace('||', ' in ') for pair in treatment_missing] if treatment_missing else [],
+        'missing_control_wards': [pair.replace('||', ' in ') for pair in control_missing] if control_missing else []
+    },
+    'ward_counts_by_region': {},
+    'spatial_bounds': {}
+}
+
+
+
+region_info = {
+    'program_regions': list(program_regions),
+    'adjacent_regions': adjacent_regions,
+    'all_target_regions': YOUR_FINAL_TARGET_REGIONS,
+    'coverage_stats': {
+        'program_area_km2': float(program_area),
+        'total_area_km2': float(total_area),
+        'control_buffer_ratio': float(total_area/program_area)
+    },
+    'program_locations': {
+        'total_treatment_locations': len(treatment_locations),
+        'total_control_locations': len(control_locations),
+        'matched_treatment_wards': len(treatment_matches),
+        'matched_control_wards': len(control_matches),
+        'treatment_match_rate': len(treatment_matches) / len(treatment_locations) if len(treatment_locations) > 0 else 0,
+        'control_match_rate': len(control_matches) / len(control_locations) if len(control_locations) > 0 else 0,
+        'missing_treatment_wards': [pair.replace('||', ' in ') for pair in treatment_missing] if treatment_missing else [],
+        'missing_control_wards': [pair.replace('||', ' in ') for pair in control_missing] if control_missing else []
+    },
+    'ward_counts_by_region': {},
+    'spatial_bounds': {}
+}
+
+# Enhanced ward counts by region and type
+ward_type_summary = gdf_relevant.groupby(['reg_name', 'program_location_type']).size().unstack(fill_value=0)
+for region in ward_type_summary.index:
+    region_info['ward_counts_by_region'][region] = {
+        'treatment_wards': int(ward_type_summary.loc[region, 'treatment']) if 'treatment' in ward_type_summary.columns else 0,
+        'program_control_wards': int(ward_type_summary.loc[region, 'program_control']) if 'program_control' in ward_type_summary.columns else 0,
+        'other_wards': int(ward_type_summary.loc[region, 'none']) if 'none' in ward_type_summary.columns else 0,
+        'total_wards': int(gdf_relevant[gdf_relevant['reg_name'] == region].shape[0])
+    }
+
+# Enhanced spatial bounds for different location types
+for location_type, location_name in [
+    ('is_treatment', 'treatment_areas'),
+    ('is_program_control', 'program_control_areas')
+]:
+    type_wards = gdf_relevant[gdf_relevant[location_type] == True]
+    if len(type_wards) > 0:
+        bounds = type_wards.total_bounds
+        region_info['spatial_bounds'][location_name] = {
+            'min_longitude': float(bounds[0]),
+            'min_latitude': float(bounds[1]),
+            'max_longitude': float(bounds[2]),
+            'max_latitude': float(bounds[3])
+        }
+
+# All program locations combined (treatment + control)
+program_wards = gdf_relevant[gdf_relevant['program_location_type'] != 'none']
+if len(program_wards) > 0:
+    bounds = program_wards.total_bounds
+    region_info['spatial_bounds']['all_program_locations'] = {
+        'min_longitude': float(bounds[0]),
+        'min_latitude': float(bounds[1]),
+        'max_longitude': float(bounds[2]),
+        'max_latitude': float(bounds[3])
+    }
+
+# Keep existing spatial bounds for program/adjacent regions
+for region_type, flag_col in [
+    ('program_regions', 'is_program_region'),
+    ('adjacent_regions', 'is_adjacent_region')
+]:
+    type_regions = gdf_relevant[gdf_relevant[flag_col] == True]
+    if len(type_regions) > 0:
+        bounds = type_regions.total_bounds
+        region_info['spatial_bounds'][region_type] = {
+            'min_longitude': float(bounds[0]),
+            'min_latitude': float(bounds[1]),
+            'max_longitude': float(bounds[2]),
+            'max_latitude': float(bounds[3])
+        }
+
+# All relevant regions combined
+all_bounds = gdf_relevant.total_bounds
+region_info['spatial_bounds']['all_regions'] = {
+    'min_longitude': float(all_bounds[0]),
+    'min_latitude': float(all_bounds[1]),
+    'max_longitude': float(all_bounds[2]),
+    'max_latitude': float(all_bounds[3])
+}
+
+print(f"✅ Enhanced region coverage plan prepared with:")
+print(f"  • {region_info['program_locations']['matched_treatment_wards']} treatment wards")
+print(f"  • {region_info['program_locations']['matched_control_wards']} program control wards")
+print(f"  • {len(region_info['all_target_regions'])} target regions")
+print(f"  • Spatial bounds for {len(region_info['spatial_bounds'])} area types")
 # %%
 ##exporting relevant regions for grid generation
 output_file = PROCESSED_DATA_DIR / "relevant_wards_with_flags.geojson"
@@ -463,57 +626,71 @@ region_info = {
         'total_area_km2': float(total_area),
         'control_buffer_ratio': float(total_area/program_area)
     },
-    'treatment_wards': {
+    'program_locations': {
         'total_treatment_locations': len(treatment_locations),
-        'matched_treatment_wards': len(treatment_exact_matches),
-        'treatment_ward_list': list(treatment_exact_matches),
-        'missing_treatment_wards': list(treatment_missing_pairs) if treatment_missing_pairs else [],
-        'match_rate': len(treatment_exact_matches) / len(treatment_locations) if len(treatment_locations) > 0 else 0
-
-
+        'total_control_locations': len(control_locations),
+        'matched_treatment_wards': len(treatment_matches),  # Fixed: was treatment_exact_matches
+        'matched_control_wards': len(control_matches),
+        'treatment_match_rate': len(treatment_matches) / len(treatment_locations) if len(treatment_locations) > 0 else 0,
+        'control_match_rate': len(control_matches) / len(control_locations) if len(control_locations) > 0 else 0,
+        'missing_treatment_wards': [pair.replace('||', ' in ') for pair in treatment_missing] if treatment_missing else [],  # Fixed: was treatment_missing_pairs
+        'missing_control_wards': [pair.replace('||', ' in ') for pair in control_missing] if control_missing else []
     },
-    'treatment_by_region': {},
+    'ward_counts_by_region': {},
     'spatial_bounds': {}
 }
 
-# Add treatment ward counts by region
-treatment_summary_dict = gdf_relevant[gdf_relevant['is_treatment'] == True].groupby('reg_name').size().to_dict()
-region_info['treatment_by_region'] = treatment_summary_dict
+ward_type_summary = gdf_relevant.groupby(['reg_name', 'program_location_type']).size().unstack(fill_value=0)
+for region in ward_type_summary.index:
+    region_info['ward_counts_by_region'][region] = {
+        'treatment_wards': int(ward_type_summary.loc[region, 'treatment']) if 'treatment' in ward_type_summary.columns else 0,
+        'program_control_wards': int(ward_type_summary.loc[region, 'program_control']) if 'program_control' in ward_type_summary.columns else 0,
+        'other_wards': int(ward_type_summary.loc[region, 'none']) if 'none' in ward_type_summary.columns else 0,
+        'total_wards': int(gdf_relevant[gdf_relevant['reg_name'] == region].shape[0])
+    }
 
-# Add spatial bounds for treatment areas
-treatment_wards_gdf = gdf_relevant[gdf_relevant['is_treatment'] == True]
-if len(treatment_wards_gdf) > 0:
-    bounds = treatment_wards_gdf.total_bounds
-    region_info['spatial_bounds']['treatment_areas'] = {
+# Enhanced spatial bounds for different location types
+for location_type, location_name in [
+    ('is_treatment', 'treatment_areas'),
+    ('is_program_control', 'program_control_areas')
+]:
+    type_wards = gdf_relevant[gdf_relevant[location_type] == True]
+    if len(type_wards) > 0:
+        bounds = type_wards.total_bounds
+        region_info['spatial_bounds'][location_name] = {
+            'min_longitude': float(bounds[0]),
+            'min_latitude': float(bounds[1]),
+            'max_longitude': float(bounds[2]),
+            'max_latitude': float(bounds[3])
+        }
+
+# All program locations combined (treatment + control)
+program_wards = gdf_relevant[gdf_relevant['program_location_type'] != 'none']
+if len(program_wards) > 0:
+    bounds = program_wards.total_bounds
+    region_info['spatial_bounds']['all_program_locations'] = {
         'min_longitude': float(bounds[0]),
         'min_latitude': float(bounds[1]),
         'max_longitude': float(bounds[2]),
         'max_latitude': float(bounds[3])
     }
 
-# Add spatial bounds for program regions
-program_regions_gdf = gdf_relevant[gdf_relevant['is_program_region'] == True]
-if len(program_regions_gdf) > 0:
-    bounds = program_regions_gdf.total_bounds
-    region_info['spatial_bounds']['program_regions'] = {
-        'min_longitude': float(bounds[0]),
-        'min_latitude': float(bounds[1]),
-        'max_longitude': float(bounds[2]),
-        'max_latitude': float(bounds[3])
-    }
+# Keep existing spatial bounds for program/adjacent regions  
+for region_type, flag_col in [
+    ('program_regions', 'is_program_region'),
+    ('adjacent_regions', 'is_adjacent_region')
+]:
+    type_regions = gdf_relevant[gdf_relevant[flag_col] == True]
+    if len(type_regions) > 0:
+        bounds = type_regions.total_bounds
+        region_info['spatial_bounds'][region_type] = {
+            'min_longitude': float(bounds[0]),
+            'min_latitude': float(bounds[1]),
+            'max_longitude': float(bounds[2]),
+            'max_latitude': float(bounds[3])
+        }
 
-# Add spatial bounds for adjacent regions
-adjacent_regions_gdf = gdf_relevant[gdf_relevant['is_adjacent_region'] == True]
-if len(adjacent_regions_gdf) > 0:
-    bounds = adjacent_regions_gdf.total_bounds
-    region_info['spatial_bounds']['adjacent_regions'] = {
-        'min_longitude': float(bounds[0]),
-        'min_latitude': float(bounds[1]),
-        'max_longitude': float(bounds[2]),
-        'max_latitude': float(bounds[3])
-    }
-
-# Add spatial bounds for all relevant regions combined
+# All relevant regions combined
 all_bounds = gdf_relevant.total_bounds
 region_info['spatial_bounds']['all_regions'] = {
     'min_longitude': float(all_bounds[0]),
@@ -521,6 +698,8 @@ region_info['spatial_bounds']['all_regions'] = {
     'max_longitude': float(all_bounds[2]),
     'max_latitude': float(all_bounds[3])
 }
+
+# %%
 
 # Save the comprehensive plan
 json_file = PROCESSED_DATA_DIR / "region_coverage_plan.json"
@@ -533,17 +712,14 @@ if json_file.exists():
     print(f"   File: {json_file.name}")
     print(f"   Size: {file_size:.1f} KB")
     print(f"   Contains: {len(region_info)} top-level sections")
-    print(f"   Treatment wards: {region_info['treatment_wards']['matched_treatment_wards']}")
+    print(f"   Treatment wards: {region_info['program_locations']['matched_treatment_wards']}")
+    print(f"   Control wards: {region_info['program_locations']['matched_control_wards']}")
     print(f"   Target regions: {len(region_info['all_target_regions'])}")
 else:
     print(f"❌ Failed to save {json_file}")
-# %%
-# Check if filtering actually worked
-print(f"Original shapefile: {len(gdf_wards)} wards")
-print(f"Relevant regions: {len(gdf_relevant)} wards") 
-print(f"Unique regions in gdf_relevant: {sorted(gdf_relevant['reg_name'].unique())}")
-print(f"Expected regions: {sorted(relevant_regions)}")
 
-# Are they the same?
-if len(gdf_wards) == len(gdf_relevant):
-    print("WARNING: No filtering occurred!")
+# Save the comprehensive plan
+json_file = PROCESSED_DATA_DIR / "region_coverage_plan.json"
+with open(json_file, "w") as f:
+    json.dump(region_info, f, indent=2, default=str)
+# %%
