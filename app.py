@@ -7,6 +7,8 @@ import geopandas as gpd
 import json
 from pathlib import Path
 import sys
+from folium import plugins
+
 
 # Page config
 st.set_page_config(page_title="Treatment area mapping RUbeho CCT", layout="wide")
@@ -30,12 +32,8 @@ try:
     def load_all_geospatial_data():
         """Load all geospatial data with proper error handling"""
         results = {'grid': None, 'wards': None, 'villages': {}}
-        
-        try:
-            results['grid'] = data_loader.load_grid_data()
-        except Exception as e:
-            st.sidebar.warning(f"Grid data not available: {e}")
-        
+        results['grid'] = None
+       
         try:
             results['wards'] = data_loader.load_ward_data()
         except Exception as e:
@@ -53,7 +51,34 @@ try:
     grid_gdf = geospatial_data['grid']
     ward_gdf = geospatial_data['wards']
     village_data = geospatial_data['villages']
-    
+    @st.cache_data
+    def filter_villages_for_ward(selected_ward, ward_gdf_hash, village_data_hash):
+        """Cache village filtering per ward to avoid reprocessing"""
+        if selected_ward == 'All Target Areas' or not village_data:
+            return [], []
+        
+        ward_info = ward_gdf[ward_gdf['ward_name'] == selected_ward]
+        if ward_info.empty:
+            return [], []
+        
+        ward_district = ward_info.iloc[0]['dist_name']
+        
+        treatment_villages = []
+        if 'treatment_villages' in village_data:
+            for village in village_data['treatment_villages']:
+                if selected_ward in village and ward_district in village:
+                    village_name = village.split(' village in')[0]
+                    treatment_villages.append(village_name)
+        
+        control_villages = []
+        if 'control_villages' in village_data:
+            for village in village_data['control_villages']:
+                if selected_ward in village and ward_district in village:
+                    village_name = village.split(' village in')[0]
+                    control_villages.append(village_name)
+        
+        return treatment_villages, control_villages
+
     # Debug info
     if st.sidebar.checkbox("Show debug info"):
         st.sidebar.write("Available files:")
@@ -101,74 +126,108 @@ if ward_gdf is not None:
     treatment_wards = ward_gdf[ward_gdf['is_treatment'] == True]['ward_name'].unique()
     control_wards = ward_gdf[ward_gdf['is_program_control'] == True]['ward_name'].unique()
     
-    all_target_wards = list(treatment_wards) + list(control_wards)
-    ward_options = ['Custom Location'] + sorted(all_target_wards)
+all_target_wards = list(treatment_wards) + list(control_wards)
+ward_options = ['All Target Areas'] + sorted(all_target_wards)  # CHANGED: 'All Target Areas' instead of 'Custom Location'
+
+selected_ward = st.sidebar.selectbox("Jump to ward:", ward_options)
+# Filter villages for the selected ward
+treatment_villages_in_ward, control_villages_in_ward = filter_villages_for_ward(
+    selected_ward, 
+    id(ward_gdf),  # Hash for cache invalidation
+    id(village_data)
+)
+# Show villages for selected ward only
+if selected_ward not in ['All Target Areas']:
+    st.sidebar.header(f"Villages in {selected_ward}")
     
-    selected_ward = st.sidebar.selectbox("Jump to ward:", ward_options)
+    if treatment_villages_in_ward:
+        with st.sidebar.expander("Treatment Villages to Map", expanded=True):
+            st.write(f"**{len(treatment_villages_in_ward)} villages:**")
+            for i, village in enumerate(treatment_villages_in_ward):
+                st.write(f"{i+1}. {village}")
     
-    # Village reference if available
-    if village_data:
-        with st.sidebar.expander("Treatment Villages", expanded=True):
-            if 'treatment_villages' in village_data:
-                st.write(f"**{len(village_data['treatment_villages'])} villages to locate:**")
-                for i, village in enumerate(village_data['treatment_villages'][:6]):
-                    st.write(f"{i+1}. {village}")
-                if len(village_data['treatment_villages']) > 6:
-                    st.write(f"... and {len(village_data['treatment_villages'])-6} more")
-        
-        with st.sidebar.expander("Control Villages"):
-            if 'control_villages' in village_data:
-                st.write(f"**{len(village_data['control_villages'])} villages:**")
-                for i, village in enumerate(village_data['control_villages'][:6]):
-                    st.write(f"{i+1}. {village}")
-                if len(village_data['control_villages']) > 6:
-                    st.write(f"... and {len(village_data['control_villages'])-6} more")
+    if control_villages_in_ward:
+        with st.sidebar.expander("Control Villages to Map", expanded=False):
+            st.write(f"**{len(control_villages_in_ward)} villages:**")
+            for i, village in enumerate(control_villages_in_ward):
+                st.write(f"{i+1}. {village}")
+    
+    if not treatment_villages_in_ward and not control_villages_in_ward:
+        st.sidebar.warning("No villages found for this ward in the database")
 
 # Annotation mode selection
-st.sidebar.header("Annotation Mode")
-annotation_options = [
-    "Treatment Village Location",
-    "Control Village Location",
-    "Treatment Ward (Other Areas)",
-    "Control Ward (Other Areas)"
-]
+# Village selector for annotation
+st.sidebar.header("Select Village to Map")
 
-mode = st.sidebar.radio("Select annotation type:", annotation_options)
-is_treatment = mode.startswith("Treatment")
+if selected_ward not in ['All Target Areas']:
+    # Combine treatment and control villages for selection
+    all_villages = []
+    if treatment_villages_in_ward:
+        all_villages.extend([(v, 'Treatment') for v in treatment_villages_in_ward])
+    if control_villages_in_ward:
+        all_villages.extend([(v, 'Control') for v in control_villages_in_ward])
+    
+    if all_villages:
+        village_options = [f"{v[0]} ({v[1]})" for v in all_villages]
+        selected_village_option = st.sidebar.selectbox("Choose village:", village_options)
+        
+        # Extract village name and type
+        village_name = selected_village_option.split(' (')[0]
+        village_type = 'Treatment' if '(Treatment)' in selected_village_option else 'Control'
+        is_treatment = village_type == 'Treatment'
+        
+        st.sidebar.success(f"Now mapping: {village_name}")
+        st.sidebar.info("Draw a polygon around this village settlement on the map")
+    else:
+        st.sidebar.warning("No villages to map in this ward")
+        village_name = None
+        village_type = None
+        is_treatment = True
+else:
+    st.sidebar.info("Select a specific ward to see villages")
+    village_name = None
+    village_type = None
+    is_treatment = True
+
 
 # Create the map
 def create_map():
     """Create the folium map with all layers"""
     
     # Determine map center and zoom
-    if ward_gdf is not None and selected_ward != 'Custom Location':
-        # Zoom to specific ward
+    if ward_gdf is not None and selected_ward not in ['All Target Areas']:
+        # SPECIFIC WARD SELECTED - zoom to it and show grid
         ward_subset = ward_gdf[ward_gdf['ward_name'] == selected_ward]
         if not ward_subset.empty:
             bounds = ward_subset.total_bounds
             center_lat = (bounds[1] + bounds[3]) / 2
             center_lon = (bounds[0] + bounds[2]) / 2
-            zoom = 12
+            zoom = 13
+            show_grid = True
         else:
-            # Fallback to program areas
             bounds = ward_gdf.total_bounds
             center_lat = (bounds[1] + bounds[3]) / 2
             center_lon = (bounds[0] + bounds[2]) / 2
             zoom = 9
+            show_grid = False
+    elif ward_gdf is not None and selected_ward == 'All Target Areas':
+        bounds = ward_gdf.total_bounds
+        center_lat = (bounds[1] + bounds[3]) / 2
+        center_lon = (bounds[0] + bounds[2]) / 2
+        zoom = 9
+        show_grid = False
     else:
-        # Default to Tanzania or user's previous location
         if st.session_state.annotations:
-            # Center on existing annotations
             lats = [ann['latitude'] for ann in st.session_state.annotations]
             lngs = [ann['longitude'] for ann in st.session_state.annotations]
             center_lat = sum(lats) / len(lats)
             center_lon = sum(lngs) / len(lngs)
             zoom = 10
         else:
-            # Default to central Tanzania
             center_lat = -6.0
             center_lon = 35.0
             zoom = 6
+        show_grid = False
 
     # Create base map
     m = folium.Map(
@@ -186,43 +245,6 @@ def create_map():
             control=False
         ).add_to(m)
     
-    # Add grid overlay if available
-    if grid_gdf is not None:
-        def grid_style_function(feature):
-            props = feature['properties']
-            if props.get('is_treatment_ward', False):
-                return {
-                    'fillColor': 'red',
-                    'color': 'darkred',
-                    'weight': 1,
-                    'fillOpacity': 0.1,
-                    'opacity': 0.6
-                }
-            elif props.get('is_program_control', False):
-                return {
-                    'fillColor': 'blue',
-                    'color': 'darkblue',
-                    'weight': 1,
-                    'fillOpacity': 0.1,
-                    'opacity': 0.6
-                }
-            else:
-                return {
-                    'fillColor': 'gray',
-                    'color': 'gray',
-                    'weight': 0.5,
-                    'fillOpacity': 0.02,
-                    'opacity': 0.2
-                }
-
-        folium.GeoJson(
-            grid_gdf,
-            style_function=grid_style_function,
-            popup=folium.Popup('Grid Cell'),
-            tooltip=folium.Tooltip(['grid_id', 'ward_name', 'district']),
-            name='Grid ells'
-        ).add_to(m)
-    
     # Add ward boundaries if available
     if ward_gdf is not None:
         folium.GeoJson(
@@ -234,33 +256,56 @@ def create_map():
                 'opacity': 0.7,
                 'dashArray': '5,5'
             },
-            popup=folium.Popup('Ward Boundary'),
-            tooltip=folium.Tooltip(['ward_name', 'dist_name', 'reg_name']),
+            tooltip=folium.GeoJsonTooltip(
+                fields=['ward_name', 'dist_name', 'reg_name'],
+                aliases=['Ward:', 'District:', 'Region:'],
+                localize=True
+            ),
             name='Ward Boundaries'
         ).add_to(m)
-    
+
+
+    # Add drawing tools for polygon annotation
+    draw = plugins.Draw(
+        export=True,
+        draw_options={
+            'polyline': False,
+            'rectangle': True,
+            'polygon': True,
+            'circle': False,
+            'marker': False,
+            'circlemarker': False,
+        },
+        edit_options={'edit': False}
+    )
+    draw.add_to(m)
+
     # Add existing annotations
+    # Add existing annotations as polygons
     for i, ann in enumerate(st.session_state.annotations):
-        color = 'red' if ann['is_treatment'] else 'blue'
-        icon_symbol = 'home' if 'Village' in ann.get('annotation_type', '') else 'circle'
-        
-        folium.Marker(
-            location=[ann['latitude'], ann['longitude']],
-            popup=f"""
-            <b>{ann.get('annotation_type', ann.get('type', 'Annotation'))}</b><br>
-            Lat: {ann['latitude']:.6f}<br>
-            Lng: {ann['longitude']:.6f}<br>
-            Time: {ann.get('timestamp', 'Unknown')}
-            """,
-            icon=folium.Icon(color='red' if ann['is_treatment'] else 'blue', icon=icon_symbol),
-            tooltip=f"Annotation {i+1}: {ann.get('annotation_type', ann.get('type', 'Unknown'))}"
-        ).add_to(m)
+        if 'geometry' in ann:
+            # New polygon-based annotations
+            color = 'red' if ann.get('is_treatment', False) else 'blue'
+            
+            folium.GeoJson(
+                ann['geometry'],
+                style_function=lambda x, color=color: {
+                    'fillColor': color,
+                    'color': color,
+                    'weight': 2,
+                    'fillOpacity': 0.3
+                },
+                popup=folium.Popup(f"<b>{ann.get('village_name', 'Unknown')}</b><br>Type: {ann.get('village_type', 'Unknown')}<br>Ward: {ann.get('ward_name', 'Unknown')}"),
+                tooltip=f"{ann.get('village_name', 'Unknown')} ({ann.get('village_type', 'Unknown')})"
+            ).add_to(m)
+
     
     # Add layer control if we have multiple layers
     if grid_gdf is not None or ward_gdf is not None:
         folium.LayerControl().add_to(m)
     
-    return m
+    return m  # This needs to be indented inside the function
+
 
 # Create and display map
 st.subheader("Click on the map to annotate areas")
@@ -270,13 +315,14 @@ col1, col2 = st.columns([3, 1])
 
 with col1:
     m = create_map()
-    map_data = st_folium(m, width=900, height=600, returned_objects=["last_clicked"])
+    map_data = st_folium(m, width=900, height=600, returned_objects=["all_drawings", "last_active_drawing"])
+
 
 with col2:
     st.subheader("Current Context")
     
     # Show current ward if selected
-    if ward_gdf is not None and selected_ward != 'Custom Location':
+    if ward_gdf is not None and selected_ward not in ['All Target Areas']:  # CHANGED: updated condition
         st.write(f"**Focus:** {selected_ward}")
         ward_info = ward_gdf[ward_gdf['ward_name'] == selected_ward]
         if not ward_info.empty:
@@ -289,7 +335,11 @@ with col2:
             elif ward_row['is_program_control']:
                 st.info("Control Ward")
     
-    st.write(f"**Mode:** {mode}")
+    if village_name:
+        st.write(f"**Mapping:** {village_name}")
+        st.write(f"**Type:** {village_type}")
+    else:
+        st.write("**Select a ward and village to start mapping**")
     
     # Show statistics
     st.subheader("Progress")
@@ -302,55 +352,65 @@ with col2:
     st.metric("Control Areas", control_count)
 
 # Handle map clicks
-if map_data['last_clicked']:
-    lat = map_data['last_clicked']['lat']
-    lng = map_data['last_clicked']['lng']
-    
-    # Create new annotation with enhanced information
-    new_annotation = {
-        'latitude': lat,
-        'longitude': lng,
-        'is_treatment': is_treatment,
-        'annotation_type': mode,
-        'type': mode,  # Keep for backwards compatibility
-        'timestamp': datetime.now().isoformat(),
-    }
-    
-    # Add grid/ward context if available
-    if grid_gdf is not None:
-        # Find which grid cell this point falls in
-        from shapely.geometry import Point
-        point = Point(lng, lat)
-        containing_cells = grid_gdf[grid_gdf.geometry.contains(point)]
-        if not containing_cells.empty:
-            cell_info = containing_cells.iloc[0]
-            new_annotation['grid_id'] = cell_info.get('grid_id', 'Unknown')
-            new_annotation['ward_name'] = cell_info.get('ward_name', 'Unknown')
-            new_annotation['district'] = cell_info.get('district', 'Unknown')
-    
-    st.session_state.annotations.append(new_annotation)
-    st.success(f"Added {mode} at coordinates: {lat:.6f}, {lng:.6f}")
-    st.rerun()
+# Capture drawn polygons
+    if map_data and map_data.get('last_active_drawing') and village_name:
+        drawing = map_data['last_active_drawing']
+        
+        new_annotation = {
+            'village_name': village_name,
+            'village_type': village_type,
+            'is_treatment': is_treatment,
+            'ward_name': selected_ward,
+            'geometry': drawing['geometry'],
+            'timestamp': datetime.now().isoformat(),
+        }
+        
+        st.session_state.annotations.append(new_annotation)
+        st.success(f"✓ Mapped {village_name} as {village_type} village in {selected_ward}")
+        st.rerun()
+    elif map_data and map_data.get('last_active_drawing') and not village_name:
+        st.warning("⚠️ Please select a village from the sidebar before drawing")
 
 # Display current annotations
 st.subheader(f"Current Annotations ({len(st.session_state.annotations)})")
 
 if st.session_state.annotations:
-    df = pd.DataFrame(st.session_state.annotations)
+    # Display mapped villages with delete buttons
+    st.write("### Mapped Villages")
+    for idx, ann in enumerate(st.session_state.annotations):
+        col_info, col_delete = st.columns([4, 1])
+        
+        with col_info:
+            village_name = ann.get('village_name', 'Unknown')
+            village_type = ann.get('village_type', 'Unknown')
+            ward_name = ann.get('ward_name', 'Unknown')
+            timestamp = ann.get('timestamp', 'Unknown')
+            
+            # Color code based on type
+            if village_type == 'Treatment':
+                st.markdown(f"🔴 **{village_name}** ({village_type}) in {ward_name}")
+            else:
+                st.markdown(f"🔵 **{village_name}** ({village_type}) in {ward_name}")
+            st.caption(f"Mapped at: {timestamp[:19] if len(timestamp) > 19 else timestamp}")
+        
+        with col_delete:
+            if st.button("🗑️", key=f"delete_{idx}", help="Delete this annotation"):
+                st.session_state.annotations.pop(idx)
+                st.rerun()
     
-    # Show most recent annotations first
-    df_display = df.sort_values('timestamp', ascending=False) if 'timestamp' in df.columns else df
-    st.dataframe(df_display)
+    st.write("---")
     
-    col1, col2, col3 = st.columns(3)
+    # Export buttons
+    col1, col2 = st.columns(2)
     
     with col1:
         # CSV download
+        df = pd.DataFrame(st.session_state.annotations)
         csv = df.to_csv(index=False)
         st.download_button(
             label="📊 Download CSV",
             data=csv,
-            file_name=f"annotations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            file_name=f"village_annotations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv"
         )
     
@@ -360,19 +420,12 @@ if st.session_state.annotations:
         st.download_button(
             label="🗺️ Download Map",
             data=map_html,
-            file_name=f"map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+            file_name=f"village_map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
             mime="text/html"
         )
-    
-    with col3:
-        # Clear all button
-        if st.button("🗑️ Clear All"):
-            st.session_state.annotations = []
-            st.rerun()
 
 else:
-    st.info("No annotations yet. Click on the map to start annotating!")
-
+    st.info("No villages mapped yet. Select a ward and village, then draw a polygon around the settlement!")
 # Instructions
 with st.expander("📋 Instructions", expanded=False):
     st.markdown("""
