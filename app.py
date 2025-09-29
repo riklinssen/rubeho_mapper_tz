@@ -9,8 +9,8 @@ from pathlib import Path
 import sys
 
 # Page config
-st.set_page_config(page_title="Deforestation Annotation Tool", layout="wide")
-st.title("🌳 Deforestation Annotation Tool")
+st.set_page_config(page_title="Treatment area mapping RUbeho CCT", layout="wide")
+st.title("🌳 Treatment area mapping tool")
 
 # Initialize session state for annotations - MUST BE EARLY
 if 'annotations' not in st.session_state:
@@ -220,7 +220,7 @@ def create_map():
             style_function=grid_style_function,
             popup=folium.Popup('Grid Cell'),
             tooltip=folium.Tooltip(['grid_id', 'ward_name', 'district']),
-            name='Grid Cells'
+            name='Grid ells'
         ).add_to(m)
     
     # Add ward boundaries if available

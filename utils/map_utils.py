@@ -84,10 +84,11 @@ class DataLoader:
     
     def load_grid_data(self):
         """Load the 500m grid with treatment/control flags"""
-        # Try multiple file formats
+        # Try multiple file formats, prioritizing the pre-filtered version
         potential_files = [
-            ("grid_500m_parent.parquet", self._load_parquet_grid),
+            ("grid_program_regions_only.geojson", gpd.read_file),  # Pre-filtered - fastest
             ("grid_500m_parent.geojson", gpd.read_file),
+            ("grid_500m_parent.parquet", self._load_parquet_grid),
             ("grid_500m_parent.shp", gpd.read_file)
         ]
         
@@ -95,19 +96,20 @@ class DataLoader:
             grid_file = self.data_dir / "processed" / filename
             if grid_file.exists():
                 try:
+                    print(f"Attempting to load: {filename}")
                     gdf = loader_func(grid_file)
                     # Ensure correct CRS
                     if gdf.crs is None:
                         gdf.set_crs('EPSG:4326', inplace=True)
                     elif gdf.crs != 'EPSG:4326':
                         gdf = gdf.to_crs('EPSG:4326')
+                    print(f"Successfully loaded {len(gdf)} grid cells from {filename}")
                     return gdf
                 except Exception as e:
                     print(f"Failed to load {filename}: {e}")
                     continue
         
         raise FileNotFoundError(f"Could not find grid data in any supported format in {self.data_dir / 'processed'}")
-    
     def _load_parquet_grid(self, grid_file):
         """Handle Parquet files which need special treatment for geometry"""
         import pandas as pd

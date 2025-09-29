@@ -213,6 +213,26 @@ parent_grid_web.to_file(geojson_file, driver='GeoJSON')
 print(f"Saved {len(parent_grid_web)} cells as GeoJSON")
 
 # %%
+# Create a filtered version of the grid focusing on treatment regions only. 
+# After creating parent_grid_web, save a filtered version
+
+# Load the region coverage plan to get program regions
+region_plan_file = PROCESSED_DATA_DIR / "region_coverage_plan.json"
+with open(region_plan_file, 'r') as f:
+    region_info = json.load(f)
+
+
+program_regions_list = region_info['program_regions']
+program_grid = parent_grid_web[parent_grid_web['region'].isin(program_regions_list)]
+
+# Save filtered version for app
+filtered_file = PROCESSED_DATA_DIR / "grid_program_regions_only.geojson"
+program_grid.to_file(filtered_file, driver='GeoJSON')
+print(f"Saved {len(program_grid)} program region cells to {filtered_file.name}")
+
+
+
+# %%
 # Create and save grid metadata
 grid_metadata = {
     'grid_info': {
