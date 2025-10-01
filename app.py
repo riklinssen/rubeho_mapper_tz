@@ -2,11 +2,15 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-from datetime import datetime
-from pathlib import Path
-import sys
 from folium import plugins
-
+from utils.map_utils import DataLoader
+import sys
+from pathlib import Path
+from datetime import datetime
+import shapely.geometry as shp_geom
+import traceback
+import json
+import time
 
 # Page config
 st.set_page_config(page_title="Treatment area mapping RUbeho CCT", layout="wide")
@@ -20,7 +24,6 @@ if 'annotations' not in st.session_state:
 sys.path.append(str(Path(__file__).parent / "utils"))
 
 try:
-    from map_utils import DataLoader
     # Initialize data loader
     DATA_DIR = Path(__file__).parent / "data"
     data_loader = DataLoader(DATA_DIR)
@@ -116,6 +119,24 @@ selected_imagery = st.sidebar.selectbox(
     index=0
 )
 
+# Performance & geometry detail (moved earlier so tolerance is defined before simplification)
+with st.sidebar.expander("Performance & Detail", expanded=False):
+    geom_detail = st.select_slider(
+        "Ward boundary detail level",
+        options=["Low", "Medium", "High"],
+        value="Medium",
+        help="Lower detail = faster map loading (geometry is simplified)."
+    )
+
+DETAIL_TOLERANCES_METERS = {"High": 10, "Medium": 50, "Low": 150}
+selected_tolerance_m = DETAIL_TOLERANCES_METERS[geom_detail]
+
+# Add lock view and recenter controls early
+with st.sidebar.expander("View Controls", expanded=False):
+    lock_view = st.checkbox("Lock map view (stop auto recenters)", value=st.session_state.get('lock_view', False))
+    force_recenter = st.button("Recenter Now")
+    st.session_state['lock_view'] = lock_view
+
 # Navigation controls if ward data is available
 if ward_gdf is not None:
     st.sidebar.header("Navigation")
@@ -123,7 +144,7 @@ if ward_gdf is not None:
     # Get treatment and control wards
     treatment_wards = ward_gdf[ward_gdf['is_treatment'] == True]['ward_name'].unique()
     control_wards = ward_gdf[ward_gdf['is_program_control'] == True]['ward_name'].unique()
-    
+
 all_target_wards = list(treatment_wards) + list(control_wards)
 ward_options = ['All Target Areas'] + sorted(all_target_wards)  # CHANGED: 'All Target Areas' instead of 'Custom Location'
 
@@ -187,61 +208,149 @@ else:
     village_type = None
     is_treatment = True
 
+def compute_map_view(ward_gdf, selected_ward, annotations):
+    """Unified center computation"""
+    try:
+        if ward_gdf is not None and selected_ward not in ['All Target Areas']:
+            subset = ward_gdf[ward_gdf['ward_name'] == selected_ward]
+            if not subset.empty:
+                b = subset.total_bounds  # minx, miny, maxx, maxy
+                lat = (b[1] + b[3]) / 2
+                lon = (b[0] + b[2]) / 2
+                return [lat, lon], 13
+            else:
+                b = ward_gdf.total_bounds
+                lat = (b[1] + b[3]) / 2
+                lon = (b[0] + b[2]) / 2
+                return [lat, lon], 9
+        elif ward_gdf is not None and selected_ward == 'All Target Areas' and hasattr(ward_gdf, 'total_bounds'):
+            b = ward_gdf.total_bounds
+            lat = (b[1] + b[3]) / 2
+            lon = (b[0] + b[2]) / 2
+            return [lat, lon], 9
+        # Fallback to annotations
+        pts = _compute_annotation_centers(annotations)
+        if pts:
+            lat = sum(p[0] for p in pts) / len(pts)
+            lon = sum(p[1] for p in pts) / len(pts)
+            zoom = 10 if len(pts) < 20 else 9
+            return [lat, lon], zoom
+    except Exception as e:
+        if st.session_state.get('debug'):
+            st.sidebar.error(f"Center computation failed: {e}")
+    return [-6.0, 35.0], 6
 
-# Create the map
-def create_map():
-    """Create the folium map with all layers"""
-    
-    # Determine map center and zoom
-    if ward_gdf is not None and selected_ward not in ['All Target Areas']:
-        # SPECIFIC WARD SELECTED - zoom to it and show grid
-        ward_subset = ward_gdf[ward_gdf['ward_name'] == selected_ward]
-        if not ward_subset.empty:
-            bounds = ward_subset.total_bounds
-            center_lat = (bounds[1] + bounds[3]) / 2
-            center_lon = (bounds[0] + bounds[2]) / 2
-            zoom = 13
-        else:
-            bounds = ward_gdf.total_bounds
-            center_lat = (bounds[1] + bounds[3]) / 2
-            center_lon = (bounds[0] + bounds[2]) / 2
-            zoom = 9
-    elif ward_gdf is not None and selected_ward == 'All Target Areas':
-        bounds = ward_gdf.total_bounds
-        center_lat = (bounds[1] + bounds[3]) / 2
-        center_lon = (bounds[0] + bounds[2]) / 2
-        zoom = 9
-    else:
-        if st.session_state.annotations:
-            lats = [ann['latitude'] for ann in st.session_state.annotations]
-            lngs = [ann['longitude'] for ann in st.session_state.annotations]
-            center_lat = sum(lats) / len(lats)
-            center_lon = sum(lngs) / len(lngs)
-            zoom = 10
-        else:
-            center_lat = -6.0
-            center_lon = 35.0
-            zoom = 6
+# Replace cached layer helpers with lightweight, non-cached builders
+# (Caching folium layer objects can cause disappearance / stale references on rerun.)
 
-    # Create base map
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=zoom,
-        tiles=None if imagery_options[selected_imagery] else 'OpenStreetMap'
-    )
-    
-    # Add selected satellite imagery
-    if imagery_options[selected_imagery]:
-        folium.TileLayer(
-            tiles=imagery_options[selected_imagery],
-            attr='Satellite Imagery',
-            name=selected_imagery.split(' (')[0],
-            control=False
-        ).add_to(m)
-    
-    # Add ward boundaries if available
-    if ward_gdf is not None:
-        folium.GeoJson(
+@st.cache_data(show_spinner=False)
+def get_simplified_ward_geojson(_ward_gdf, tolerance_m: int, max_vertices: int = 250_000):
+    """Return a simplified, coordinate-rounded GeoJSON string for ward_gdf.
+    _ward_gdf: input GeoDataFrame (EPSG:4326)
+    tolerance_m: simplification tolerance in projected meters (Web Mercator)
+    max_vertices: threshold over which simplification is applied regardless of detail level
+    """
+    if ward_gdf is None or len(ward_gdf) == 0:
+        return None
+    start_t = time.time()
+    try:
+        gdf = ward_gdf
+        # Keep only required columns to shrink payload
+        required_cols = [c for c in ['ward_name', 'dist_name', 'reg_name', 'geometry'] if c in gdf.columns]
+        gdf = gdf[required_cols].copy()
+        # Ensure CRS; assume data is already EPSG:4326 else attempt to set/convert gracefully
+        try:
+            if gdf.crs is None:
+                gdf = gdf.set_crs(4326, allow_override=True)
+        except Exception:
+            pass
+        try:
+            gdf_proj = gdf.to_crs(3857)
+        except Exception:
+            gdf_proj = gdf
+        def _geom_vertices(geom):
+            if geom.is_empty:
+                return 0
+            if geom.geom_type == 'Polygon':
+                return len(geom.exterior.coords)
+            if geom.geom_type == 'MultiPolygon':
+                return sum(len(p.exterior.coords) for p in geom.geoms)
+            return 0
+        total_vertices = int(gdf_proj.geometry.map(_geom_vertices).sum())
+        apply_simplify = (tolerance_m > 0) and (geom_detail != 'High' or total_vertices > max_vertices)
+        if apply_simplify:
+            gdf_proj = gdf_proj.copy()
+            gdf_proj['geometry'] = gdf_proj.geometry.simplify(tolerance=tolerance_m, preserve_topology=True)
+        try:
+            gdf_wgs = gdf_proj.to_crs(4326)
+        except Exception:
+            gdf_wgs = gdf_proj
+        geojson_obj = json.loads(gdf_wgs.to_json())
+        def _round_coords(obj, nd=5):
+            if isinstance(obj, list):
+                if len(obj) == 0:
+                    return obj
+                if isinstance(obj[0], (float, int)) and len(obj) >= 2:
+                    return [round(obj[0], nd), round(obj[1], nd)] + ([round(obj[2], nd)] if len(obj) == 3 else [])
+                else:
+                    return [_round_coords(x, nd) for x in obj]
+            elif isinstance(obj, dict):
+                if 'coordinates' in obj:
+                    obj['coordinates'] = _round_coords(obj['coordinates'], nd)
+                elif 'geometries' in obj:
+                    obj['geometries'] = [_round_coords(g, nd) for g in obj['geometries']]
+                return obj
+            else:
+                return obj
+        _round_coords(geojson_obj, nd=5 if geom_detail != 'High' else 6)
+        for feat in geojson_obj.get('features', []):
+            props = feat.get('properties', {})
+            props['_simp_tol_m'] = tolerance_m if apply_simplify else 0
+            props['_vertices_est'] = total_vertices
+            props['_build_ms'] = int((time.time() - start_t) * 1000)
+            feat['properties'] = props
+        return json.dumps(geojson_obj, separators=(',', ':'))
+    except Exception as e:
+        if st.session_state.get('debug'):
+            st.sidebar.error(f"Simplification failed: {e}")
+        return None
+
+# Multi-detail cache in session_state to avoid re-generation when switching detail levels
+if 'ward_geojson_cache' not in st.session_state:
+    st.session_state['ward_geojson_cache'] = {}
+cache_key = f"{ward_gdf}-{selected_tolerance_m}"
+if cache_key in st.session_state['ward_geojson_cache']:
+    simplified_ward_geojson = st.session_state['ward_geojson_cache'][cache_key]
+else:
+    simplified_ward_geojson = get_simplified_ward_geojson(ward_gdf, selected_tolerance_m)
+    st.session_state['ward_geojson_cache'][cache_key] = simplified_ward_geojson
+
+def build_ward_layer(ward_gdf):
+    # Prefer simplified serialized JSON if available
+    if simplified_ward_geojson:
+        try:
+            return folium.GeoJson(
+                data=simplified_ward_geojson,
+                name='Ward Boundaries',
+                style_function=lambda x: {
+                    'color': 'yellow',
+                    'weight': 1.5 if geom_detail != 'Low' else 1,
+                    'fillOpacity': 0,
+                    'opacity': 0.7,
+                    'dashArray': '5,5'
+                },
+                tooltip=folium.GeoJsonTooltip(
+                    fields=['ward_name', 'dist_name', 'reg_name'],
+                    aliases=['Ward:', 'District:', 'Region:'],
+                    localize=True
+                )
+            )
+        except Exception as e:
+            if st.session_state.get('debug'):
+                st.write(f"Failed to use simplified JSON: {e}")
+    # Fallback original path
+    if ward_gdf is not None and hasattr(ward_gdf, 'empty') and not ward_gdf.empty:
+        return folium.GeoJson(
             ward_gdf,
             style_function=lambda x: {
                 'color': 'yellow',
@@ -256,60 +365,162 @@ def create_map():
                 localize=True
             ),
             name='Ward Boundaries'
-        ).add_to(m)
+        )
+    return None
 
+def build_annotation_layers(annotations):
+    layers = []
+    for ann in annotations:
+        geom = ann.get('geometry')
+        if not geom:
+            continue
+        color = 'red' if ann.get('is_treatment', False) else 'blue'
+        try:
+            layers.append(
+                folium.GeoJson(
+                    geom,
+                    style_function=lambda x, color=color: {
+                        'fillColor': color,
+                        'color': color,
+                        'weight': 2,
+                        'fillOpacity': 0.3
+                    },
+                    tooltip=f"{ann.get('village_name','Unknown')} ({ann.get('village_type','?')})",
+                    name=f"{ann.get('village_name','Ann')}"
+                )
+            )
+        except Exception as e:
+            if st.session_state.get('debug'):
+                st.write(f"Annotation layer error: {e}")
+    return layers
 
-    # Add drawing tools for polygon annotation
-    draw = plugins.Draw(
-        export=True,
-        draw_options={
-            'polyline': False,
-            'rectangle': True,
-            'polygon': True,
-            'circle': False,
-            'marker': False,
-            'circlemarker': False,
-        },
-        edit_options={'edit': False}
+# Annotation layers caching (restore logic)
+import hashlib as _hashlib
+
+def _annotations_sig(annotations):
+    if not annotations:
+        return 'empty'
+    # Use subset + length for stable lightweight signature
+    sample = annotations[-15:]  # last 15 shapes
+    raw = json.dumps(sample, sort_keys=True, default=str) + str(len(annotations))
+    return _hashlib.md5(raw.encode('utf-8')).hexdigest()
+
+if 'annotation_layers_sig' not in st.session_state:
+    st.session_state.annotation_layers_sig = ''
+if 'cached_annotation_layers' not in st.session_state:
+    st.session_state.cached_annotation_layers = []
+
+_current_sig = _annotations_sig(st.session_state.annotations)
+if _current_sig != st.session_state.annotation_layers_sig:
+    st.session_state.cached_annotation_layers = build_annotation_layers(st.session_state.annotations)
+    st.session_state.annotation_layers_sig = _current_sig
+    if st.session_state.get('debug'):
+        st.sidebar.info(f"Rebuilt annotation layers ({len(st.session_state.cached_annotation_layers)})")
+
+# Helper: compute annotation center points (lat, lon)
+def _compute_annotation_centers(annotations):
+    pts = []
+    for ann in annotations:
+        try:
+            if 'latitude' in ann and 'longitude' in ann:
+                pts.append((ann['latitude'], ann['longitude']))
+                continue
+            geom_dict = ann.get('geometry')
+            if isinstance(geom_dict, dict):
+                gtype = geom_dict.get('type')
+                if gtype in ('Polygon', 'MultiPolygon', 'Point', 'GeometryCollection'):
+                    try:
+                        geom = shp_geom.shape(geom_dict)
+                        c = geom.centroid
+                        pts.append((c.y, c.x))
+                    except Exception:
+                        pass
+                elif gtype == 'LineString':
+                    coords = geom_dict.get('coordinates')
+                    if coords:
+                        mid = coords[len(coords)//2]
+                        pts.append((mid[1], mid[0]))
+        except Exception:
+            continue
+    return pts
+
+# Store map center/zoom in session state
+if 'map_center' not in st.session_state:
+    st.session_state['map_center'] = [-6.0, 35.0]
+    st.session_state['map_zoom'] = 6
+
+# REMOVE old duplicated center calculation block and use unified function only
+# (Previously there was logic here computing center_lat/center_lon/zoom directly.)
+# We now rely exclusively on compute_map_view for clarity and to avoid race conditions.
+
+# Build base map fresh each rerun (avoid caching folium objects)
+def build_base_map(center, zoom, selected_imagery):
+    m = folium.Map(
+        location=center,
+        zoom_start=zoom,
+        tiles=None if imagery_options[selected_imagery] else 'OpenStreetMap'
     )
-    draw.add_to(m)
-
-    # Add existing annotations
-    # Add existing annotations as polygons
-    for i, ann in enumerate(st.session_state.annotations):
-        if 'geometry' in ann:
-            # New polygon-based annotations
-            color = 'red' if ann.get('is_treatment', False) else 'blue'
-            
-            folium.GeoJson(
-                ann['geometry'],
-                style_function=lambda x, color=color: {
-                    'fillColor': color,
-                    'color': color,
-                    'weight': 2,
-                    'fillOpacity': 0.3
-                },
-                popup=folium.Popup(f"<b>{ann.get('village_name', 'Unknown')}</b><br>Type: {ann.get('village_type', 'Unknown')}<br>Ward: {ann.get('ward_name', 'Unknown')}"),
-                tooltip=f"{ann.get('village_name', 'Unknown')} ({ann.get('village_type', 'Unknown')})"
-            ).add_to(m)
-
-    
-    # Add layer control if we have multiple layers
-    if grid_gdf is not None or ward_gdf is not None:
-        folium.LayerControl().add_to(m)
-    
-    return m  # This needs to be indented inside the function
+    if imagery_options[selected_imagery]:
+        folium.TileLayer(
+            tiles=imagery_options[selected_imagery],
+            attr='Satellite Imagery',
+            name=selected_imagery.split(' (')[0],
+            control=False
+        ).add_to(m)
+    return m
 
 
-# Create and display map
+
+# Compute and store center AFTER functions are defined
+center, zoom = compute_map_view(ward_gdf, selected_ward, st.session_state.annotations)
+st.session_state['map_center'] = center
+st.session_state['map_zoom'] = zoom
+
+# Remove any earlier premature center computation (if present)
+# (No action needed; this comment documents intentional ordering.)
+
+DETAIL_TOLERANCES_METERS = {"High": 10, "Medium": 50, "Low": 150}
+selected_tolerance_m = DETAIL_TOLERANCES_METERS[geom_detail]
+
+# Center computation adjustment: only recompute if not locked or forced or ward changed
+if 'last_selected_ward_for_center' not in st.session_state:
+    st.session_state['last_selected_ward_for_center'] = None
+
+recompute_center = force_recenter or (not lock_view) or (st.session_state['last_selected_ward_for_center'] != selected_ward)
+if recompute_center:
+    center, zoom = compute_map_view(ward_gdf, selected_ward, st.session_state.annotations)
+    st.session_state['map_center'] = center
+    st.session_state['map_zoom'] = zoom
+    st.session_state['last_selected_ward_for_center'] = selected_ward
+
+# Proceed to map rendering
 st.subheader("Click on the map to annotate areas")
 
 # Layout: map and info panel
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    m = create_map()
-    map_data = st_folium(m, width=900, height=600, returned_objects=["all_drawings", "last_active_drawing"])
+    try:
+        m = build_base_map(st.session_state.get('map_center', [-6.0, 35.0]), st.session_state.get('map_zoom', 6), selected_imagery)
+        ward_layer = build_ward_layer(ward_gdf)
+        if ward_layer:
+            ward_layer.add_to(m)
+        plugins.Draw(
+            export=True,
+            draw_options={'polyline': False,'rectangle': True,'polygon': True,'circle': False,'marker': False,'circlemarker': False},
+            edit_options={'edit': False}
+        ).add_to(m)
+        for layer in st.session_state.cached_annotation_layers:
+            layer.add_to(m)
+        if ward_layer or grid_gdf is not None:
+            folium.LayerControl().add_to(m)
+        map_data = st_folium(m, width=900, height=600, returned_objects=["all_drawings","last_active_drawing"], key="main_map")
+    except Exception as e:
+        if st.session_state.get('debug'):
+            st.exception(e)
+            st.code(traceback.format_exc())
+        st.error("Map rendering failed. Enable Debug mode for details.")
+        map_data = None
 
 
 with col2:
@@ -323,10 +534,10 @@ with col2:
             ward_row = ward_info.iloc[0]
             st.write(f"**District:** {ward_row['dist_name']}")
             st.write(f"**Region:** {ward_row['reg_name']}")
-            
-            if ward_row['is_treatment']:
+
+            if getattr(ward_row, 'is_treatment', False):
                 st.success("Treatment Ward")
-            elif ward_row['is_program_control']:
+            elif getattr(ward_row, 'is_program_control', False):
                 st.info("Control Ward")
     
     if village_name:
