@@ -3,8 +3,6 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 from datetime import datetime
-import geopandas as gpd
-import json
 from pathlib import Path
 import sys
 from folium import plugins
@@ -203,19 +201,16 @@ def create_map():
             center_lat = (bounds[1] + bounds[3]) / 2
             center_lon = (bounds[0] + bounds[2]) / 2
             zoom = 13
-            show_grid = True
         else:
             bounds = ward_gdf.total_bounds
             center_lat = (bounds[1] + bounds[3]) / 2
             center_lon = (bounds[0] + bounds[2]) / 2
             zoom = 9
-            show_grid = False
     elif ward_gdf is not None and selected_ward == 'All Target Areas':
         bounds = ward_gdf.total_bounds
         center_lat = (bounds[1] + bounds[3]) / 2
         center_lon = (bounds[0] + bounds[2]) / 2
         zoom = 9
-        show_grid = False
     else:
         if st.session_state.annotations:
             lats = [ann['latitude'] for ann in st.session_state.annotations]
@@ -227,7 +222,6 @@ def create_map():
             center_lat = -6.0
             center_lon = 35.0
             zoom = 6
-        show_grid = False
 
     # Create base map
     m = folium.Map(
