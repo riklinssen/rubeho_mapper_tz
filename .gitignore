@@ -4,6 +4,9 @@ venv/
 env/
 .env
 
+#streamlit
+.streamlit
+
 # Python cache and compiled files
 __pycache__/
 *.py[cod]

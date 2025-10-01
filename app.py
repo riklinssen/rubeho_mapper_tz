@@ -8,15 +8,99 @@ import json
 from pathlib import Path
 import sys
 from folium import plugins
+from streamlit_gsheets import GSheetsConnection
+import json
+
+# Initialize Google Sheets connection
+@st.cache_resource
+def init_gsheets():
+    return st.connection("gsheets", type=GSheetsConnection)
+
+try:
+    conn = init_gsheets()
+    
+    # Load existing annotations from sheet
+    @st.cache_data(ttl=10)
+    def load_annotations_from_sheet():
+        try:
+            df = conn.read(worksheet="Sheet1", ttl=10)
+            if df.empty or len(df) == 0:
+                return []
+            annotations = df.to_dict('records')
+            for ann in annotations:
+                if 'geometry' in ann and isinstance(ann['geometry'], str):
+                    try:
+                        ann['geometry'] = json.loads(ann['geometry'])
+                    except:
+                        pass
+                if 'is_treatment' in ann:
+                    ann['is_treatment'] = str(ann['is_treatment']).lower() == 'true'
+            return annotations
+        except Exception as e:
+            st.sidebar.warning(f"Could not load from Google Sheets: {e}")
+            return []
+    
+    def is_village_already_mapped(village_name, ward_name):
+        try:
+            df = conn.read(worksheet="Sheet1")
+            if df.empty:
+                return False
+            existing = df[(df['village_name'] == village_name) & (df['ward_name'] == ward_name)]
+            return not existing.empty
+        except:
+            return False
+    
+    def save_annotation_to_sheet(annotation):
+        try:
+            annotation_copy = annotation.copy()
+            annotation_copy['geometry'] = json.dumps(annotation_copy['geometry'])
+            df = conn.read(worksheet="Sheet1")
+            new_row = pd.DataFrame([annotation_copy])
+            if df.empty:
+                df = new_row
+            else:
+                df = pd.concat([df, new_row], ignore_index=True)
+            conn.update(worksheet="Sheet1", data=df)
+            return True, "Saved"
+        except Exception as e:
+            return False, f"Error: {str(e)}"
+    
+    def delete_annotation_from_sheet(village_name, ward_name):
+        try:
+            df = conn.read(worksheet="Sheet1")
+            df = df[~((df['village_name'] == village_name) & (df['ward_name'] == ward_name))]
+            conn.update(worksheet="Sheet1", data=df)
+            return True
+        except Exception as e:
+            st.error(f"Error deleting: {e}")
+            return False
+    
+    sheets_available = True
+    
+except Exception as e:
+    st.sidebar.error(f"Google Sheets not available: {e}")
+    sheets_available = False
+    def load_annotations_from_sheet():
+        return []
+    def is_village_already_mapped(v, w):
+        return False
+    def save_annotation_to_sheet(a):
+        return False, "Offline"
+    def delete_annotation_from_sheet(v, w):
+        return False
 
 
 # Page config
 st.set_page_config(page_title="Treatment area mapping RUbeho CCT", layout="wide")
 st.title("🌳 Treatment area mapping tool")
 
-# Initialize session state for annotations - MUST BE EARLY
+# Initialize session state for annotations - MUST BE EARLY ###HERE
 if 'annotations' not in st.session_state:
-    st.session_state.annotations = []
+    if sheets_available:
+        st.session_state.annotations = load_annotations_from_sheet()
+    else:
+        st.session_state.annotations = []
+
 
 # Add utils to path
 sys.path.append(str(Path(__file__).parent / "utils"))
@@ -95,28 +179,10 @@ except ImportError as e:
 # Sidebar controls
 st.sidebar.header("Controls")
 
-# File upload for continuing previous work
-uploaded_file = st.sidebar.file_uploader("Upload previous annotations (optional)", type=['csv'])
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.session_state.annotations = df.to_dict('records')
-    st.sidebar.success(f"Loaded {len(df)} previous annotations")
 
 # Map settings
 st.sidebar.header("Map Settings")
 
-# Imagery selection
-imagery_options = {
-    'ESRI Satellite (Free)': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    'Google Satellite (Best Quality)': 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-    'OpenStreetMap (Reference)': None  # Will use default OSM
-}
-
-selected_imagery = st.sidebar.selectbox(
-    "Choose satellite imagery:",
-    list(imagery_options.keys()),
-    index=0
-)
 
 # Navigation controls if ward data is available
 if ward_gdf is not None:
@@ -229,41 +295,57 @@ def create_map():
             zoom = 6
         show_grid = False
 
-    # Create base map
+    # Create base map with no default tiles
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom,
-        tiles=None if imagery_options[selected_imagery] else 'OpenStreetMap'
+        tiles=None
     )
-    
-    # Add selected satellite imagery
-    if imagery_options[selected_imagery]:
-        folium.TileLayer(
-            tiles=imagery_options[selected_imagery],
-            attr='Satellite Imagery',
-            name=selected_imagery.split(' (')[0],
-            control=False
-        ).add_to(m)
-    
-    # Add ward boundaries if available
-    if ward_gdf is not None:
-        folium.GeoJson(
-            ward_gdf,
-            style_function=lambda x: {
-                'color': 'yellow',
-                'weight': 2,
-                'fillOpacity': 0,
-                'opacity': 0.7,
-                'dashArray': '5,5'
-            },
-            tooltip=folium.GeoJsonTooltip(
-                fields=['ward_name', 'dist_name', 'reg_name'],
-                aliases=['Ward:', 'District:', 'Region:'],
-                localize=True
-            ),
-            name='Ward Boundaries'
-        ).add_to(m)
 
+    # Add all imagery options as toggleable layers
+    folium.TileLayer(
+        tiles='OpenStreetMap',
+        name='OpenStreetMap',
+        control=True
+    ).add_to(m)
+
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attr='ESRI',
+        name='ESRI Satellite',
+        control=True
+    ).add_to(m)
+
+    folium.TileLayer(
+        tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+        attr='Google',
+        name='Google Satellite',
+        control=True,
+        show=True  # Make this the default visible layer
+    ).add_to(m)
+
+    # Add ward boundaries if available - ONLY FOR SELECTED WARD
+    if ward_gdf is not None and selected_ward not in ['All Target Areas']:
+        # Filter to only the selected ward
+        selected_ward_gdf = ward_gdf[ward_gdf['ward_name'] == selected_ward]
+        
+        if not selected_ward_gdf.empty:
+            folium.GeoJson(
+                selected_ward_gdf,
+                style_function=lambda x: {
+                    'color': 'yellow',
+                    'weight': 2,
+                    'fillOpacity': 0,
+                    'opacity': 0.7,
+                    'dashArray': '5,5'
+                },
+                tooltip=folium.GeoJsonTooltip(
+                    fields=['ward_name', 'dist_name', 'reg_name'],
+                    aliases=['Ward:', 'District:', 'Region:'],
+                    localize=True
+                ),
+                name='Ward Boundary'
+            ).add_to(m)
 
     # Add drawing tools for polygon annotation
     draw = plugins.Draw(
@@ -280,7 +362,6 @@ def create_map():
     )
     draw.add_to(m)
 
-    # Add existing annotations
     # Add existing annotations as polygons
     for i, ann in enumerate(st.session_state.annotations):
         if 'geometry' in ann:
@@ -299,23 +380,28 @@ def create_map():
                 tooltip=f"{ann.get('village_name', 'Unknown')} ({ann.get('village_type', 'Unknown')})"
             ).add_to(m)
 
+    # Add layer control
+    folium.LayerControl(position='topright', collapsed=False).add_to(m)
+
     
-    # Add layer control if we have multiple layers
-    if grid_gdf is not None or ward_gdf is not None:
-        folium.LayerControl().add_to(m)
-    
-    return m  # This needs to be indented inside the function
+    return m
 
 
-# Create and display map
+# Create and display map (THIS IS OUTSIDE THE FUNCTION)
 st.subheader("Click on the map to annotate areas")
 
 # Layout: map and info panel
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    m = create_map()
-    map_data = st_folium(m, width=900, height=600, returned_objects=["all_drawings", "last_active_drawing"])
+    m = create_map()  # Call the function here
+    map_data = st_folium(
+        m, 
+        width=900, 
+        height=600, 
+        returned_objects=["all_drawings", "last_active_drawing"],
+        key=f"map_{selected_ward}_{len(st.session_state.annotations)}"
+    )
 
 
 with col2:
@@ -353,9 +439,12 @@ with col2:
 
 # Handle map clicks
 # Capture drawn polygons
-    if map_data and map_data.get('last_active_drawing') and village_name:
-        drawing = map_data['last_active_drawing']
-        
+if map_data and map_data.get('last_active_drawing') and village_name:
+    drawing = map_data['last_active_drawing']
+    
+    if sheets_available and is_village_already_mapped(village_name, selected_ward):
+        st.warning(f"⚠️ {village_name} in {selected_ward} already mapped!")
+    else:
         new_annotation = {
             'village_name': village_name,
             'village_type': village_type,
@@ -365,11 +454,17 @@ with col2:
             'timestamp': datetime.now().isoformat(),
         }
         
-        st.session_state.annotations.append(new_annotation)
-        st.success(f"✓ Mapped {village_name} as {village_type} village in {selected_ward}")
-        st.rerun()
-    elif map_data and map_data.get('last_active_drawing') and not village_name:
-        st.warning("⚠️ Please select a village from the sidebar before drawing")
+        if sheets_available:
+            success, message = save_annotation_to_sheet(new_annotation)
+            if success:
+                st.session_state.annotations.append(new_annotation)
+                st.cache_data.clear()
+                st.success(f"✓ {village_name} saved to database")
+            else:
+                st.error(f"❌ {message}")
+        else:
+            st.session_state.annotations.append(new_annotation)
+            st.warning("⚠️ Offline - not saved")
 
 # Display current annotations
 st.subheader(f"Current Annotations ({len(st.session_state.annotations)})")
@@ -395,9 +490,15 @@ if st.session_state.annotations:
         
         with col_delete:
             if st.button("🗑️", key=f"delete_{idx}", help="Delete this annotation"):
+                ann = st.session_state.annotations[idx]
+            if sheets_available:
+                if delete_annotation_from_sheet(ann['village_name'], ann['ward_name']):
+                    st.session_state.annotations.pop(idx)
+                    st.cache_data.clear()
+                    st.rerun()
+            else:
                 st.session_state.annotations.pop(idx)
                 st.rerun()
-    
     st.write("---")
     
     # Export buttons
@@ -408,12 +509,13 @@ if st.session_state.annotations:
         df = pd.DataFrame(st.session_state.annotations)
         csv = df.to_csv(index=False)
         st.download_button(
-            label="📊 Download CSV",
+            label="📊 Export Backup CSV",
             data=csv,
-            file_name=f"village_annotations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
+            file_name=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            help="Backup only - auto-saved to Google Sheets"
         )
-    
+
     with col2:
         # Map download
         map_html = m._repr_html_()
