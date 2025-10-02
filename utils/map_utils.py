@@ -1,80 +1,7 @@
 import folium
 import geopandas as gpd
-from shapely.prepared import prep
 
-class SatelliteImageryManager:
-    """Handles different satellite imagery sources"""
-    
-    @staticmethod
-    def add_google_satellite(m):
-        """Add Google Satellite imagery as base layer"""
-        google_satellite = folium.raster_layers.WmsTileLayer(
-            url='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-            layers='',
-            name='Google Satellite',
-            attr='Google',
-            overlay=False,
-            control=True
-        )
-        google_satellite.add_to(m)
-    
-    @staticmethod 
-    def add_esri_satellite(m):
-        """Add ESRI World Imagery as base layer"""
-        esri_satellite = folium.raster_layers.WmsTileLayer(
-            url='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            layers='',
-            name='ESRI Satellite',
-            attr='ESRI',
-            overlay=False,
-            control=True
-        )
-        esri_satellite.add_to(m)
 
-class GridManager:
-    """Handles grid overlay and styling"""
-    
-    @staticmethod
-    def add_grid_overlay(m, grid_gdf):
-        """Add grid cells as overlay with treatment/control styling"""
-        
-        # Style function for grid cells
-        def style_function(feature):
-            props = feature['properties']
-            
-            if props.get('is_treatment_ward', False):
-                return {
-                    'fillColor': 'red',
-                    'color': 'darkred',
-                    'weight': 1,
-                    'fillOpacity': 0.1,
-                    'opacity': 0.7
-                }
-            elif props.get('is_program_control', False):
-                return {
-                    'fillColor': 'blue', 
-                    'color': 'darkblue',
-                    'weight': 1,
-                    'fillOpacity': 0.1,
-                    'opacity': 0.7
-                }
-            else:
-                return {
-                    'fillColor': 'gray',
-                    'color': 'gray',
-                    'weight': 0.5,
-                    'fillOpacity': 0.05,
-                    'opacity': 0.3
-                }
-        
-        # Add grid to map
-        folium.GeoJson(
-            grid_gdf,
-            style_function=style_function,
-            popup=folium.Popup('Click to annotate'),
-            tooltip=folium.Tooltip(['grid_id', 'ward_name', 'district']),
-            name='Grid Cells'
-        ).add_to(m)
 
 class DataLoader:
     """Handles loading and caching of geospatial data"""
@@ -110,17 +37,6 @@ class DataLoader:
                     continue
         
         raise FileNotFoundError(f"Could not find grid data in any supported format in {self.data_dir / 'processed'}")
-    def _load_parquet_grid(self, grid_file):
-        """Handle Parquet files which need special treatment for geometry"""
-        import pandas as pd
-        
-        # Read as pandas DataFrame first
-        df = pd.read_parquet(grid_file)
-        
-        # Convert back to GeoDataFrame
-        gdf = gpd.GeoDataFrame(df, geometry='geometry')
-        
-        return gdf
     
     def load_ward_data(self):
         """Load ward boundaries with flags"""
