@@ -1,0 +1,6 @@
+pandas==2.3.2
+streamlit==1.49.1
+streamlit-folium==0.25.1
+geopandas==1.1.1
+folium==0.20.0
+st-gsheets-connection==0.1.0
