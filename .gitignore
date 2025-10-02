@@ -35,6 +35,13 @@ data/temp/*
 !data/processed/.gitkeep
 !data/temp/.gitkeep
 
+
+#add the relevant files for streamlit deployment 
+!data/processed/.gitkeep
+!data/processed/region_coverage_plan.json
+
+!data/processed/relevant_wards_with_flags.geojson
+
 # General data file exclusions
 *.csv
 *.xlsx

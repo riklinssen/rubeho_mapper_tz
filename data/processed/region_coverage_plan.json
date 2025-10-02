@@ -1,0 +1,295 @@
+{
+  "program_regions": [
+    "Dodoma",
+    "Morogoro"
+  ],
+  "adjacent_regions": [
+    "Iringa",
+    "Pwani",
+    "Njombe",
+    "Ruvuma",
+    "Manyara",
+    "Singida",
+    "Lindi",
+    "Tanga"
+  ],
+  "all_target_regions": [
+    "Iringa",
+    "Pwani",
+    "Njombe",
+    "Ruvuma",
+    "Manyara",
+    "Dodoma",
+    "Singida",
+    "Morogoro",
+    "Lindi",
+    "Tanga"
+  ],
+  "coverage_stats": {
+    "program_area_km2": 112389.6100501847,
+    "total_area_km2": 455018.3815450592,
+    "control_buffer_ratio": 4.0485804812551835
+  },
+  "program_locations": {
+    "total_treatment_locations": 20,
+    "total_control_locations": 14,
+    "matched_treatment_wards": 20,
+    "matched_control_wards": 12,
+    "treatment_match_rate": 1.0,
+    "control_match_rate": 0.8571428571428571,
+    "missing_treatment_wards": [],
+    "missing_control_wards": [
+      "BEREGE in KILOSA"
+    ],
+    "treatment_ward_names": [
+      "Lumuma",
+      "Luhundwa",
+      "Wotta",
+      "Mbuga",
+      "Lufu",
+      "Pwaga",
+      "Galigali",
+      "Wangi",
+      "Massa",
+      "Ipera",
+      "Malolo",
+      "Mang'aliza",
+      "Magomeni",
+      "Lumuma",
+      "Kidete",
+      "Masanze",
+      "Kidodi",
+      "Vidunda",
+      "Malolo",
+      "Uleling'ombe"
+    ],
+    "control_ward_names": [
+      "Kibakwe",
+      "Kingiti",
+      "Mvumi",
+      "Rudewa",
+      "Lumbiji",
+      "Ulaya",
+      "Zombo",
+      "Mhenda",
+      "Masanze",
+      "Mikumi",
+      "Malolo",
+      "Kisanga"
+    ],
+    "treatment_villages": [
+      "Lutalawe village in Ipera ward, Mpwapwa district",
+      "Kikuyu village in Ipera ward, Mpwapwa district",
+      "Kinusi village in Ipera ward, Mpwapwa district",
+      "Makose village in Massa ward, Mpwapwa district",
+      "Mkoleko village in Massa ward, Mpwapwa district",
+      "Ibingu village in Lumuma ward, Kilosa district",
+      "Kibasigwa village in Lumuma ward, Kilosa district",
+      "Lunenzi village in Lumuma ward, Kilosa district",
+      "Mnozi village in Lumuma ward, Kilosa district",
+      "Idaho village in Pwaga ward, Mpwapwa district",
+      "Itende village in Pwaga ward, Mpwapwa district",
+      "Mungui village in Pwaga ward, Mpwapwa district",
+      "Lufu village in Lufu ward, Mpwapwa district",
+      "Mlimo village in Lufu ward, Mpwapwa district",
+      "Gomhungile village in Lufu ward, Mpwapwa district",
+      "Kidenge village in Luhundwa ward, Mpwapwa district",
+      "Kizi village in Mbuga ward, Mpwapwa district",
+      "Iguluwi village in Mbuga ward, Mpwapwa district",
+      "Mbuga village in Mbuga ward, Mpwapwa district",
+      "Matonya village in Galigali ward, Mpwapwa district",
+      "Galigali village in Galigali ward, Mpwapwa district",
+      "Lufusi village in Lumuma ward, Mpwapwa district",
+      "Idodoma village in Malolo ward, Mpwapwa district",
+      "Malolo village in Malolo ward, Mpwapwa district",
+      "Nzugilo village in Malolo ward, Mpwapwa district",
+      "Mang'aliza village in Mang'aliza ward, Mpwapwa district",
+      "Kilambo village in Mang'aliza ward, Mpwapwa district",
+      "Matuli village in Mang'aliza ward, Mpwapwa district",
+      "Kikundi village in Kidete ward, Kilosa district",
+      "Mwasa village in Kidete ward, Kilosa district",
+      "Mzaganza village in Kidete ward, Kilosa district",
+      "Mkadage village in Magomeni ward, Kilosa district",
+      "Munisagara village in Masanze ward, Kilosa district",
+      "Chabi village in Malolo ward, Kilosa district",
+      "Mgogozi village in Malolo ward, Kilosa district",
+      "Mlunga village in Uleling'ombe ward, Kilosa district",
+      "Uleling'ombe village in Uleling'ombe ward, Kilosa district",
+      "Chonwe village in Vidunda ward, Kilosa district",
+      "Udung'hu village in Vidunda ward, Kilosa district",
+      "Vidunda village in Vidunda ward, Kilosa district",
+      "Lumango village in Kidodi ward, Kilosa district",
+      "Lwihomelo village in Wangi ward, Mpwapwa district",
+      "Mwanawotta village in Wotta ward, Mpwapwa district"
+    ],
+    "control_villages": [
+      "Chabima village in Masanze ward, Kilosa district",
+      "Dodoma Isanga village in Masanze ward, Kilosa district",
+      "Ihombwe village in Mikumi ward, Kilosa district",
+      "Msimba village in Mikumi ward, Kilosa district",
+      "Kisanga village in Kisanga ward, Kilosa district",
+      "Mazidini village in Kisanga ward, Kilosa district",
+      "Msolwa village in Kisanga ward, Kilosa district",
+      "Wedo village in Kisanga ward, Kilosa district",
+      "Kitunduweta village in Mhenda ward, Kilosa district",
+      "Mhenda village in Mhenda ward, Kilosa district",
+      "Ilakala village in Mhenda ward, Kilosa district",
+      "Nyaranda village in Mhenda ward, Kilosa district",
+      "Malolo A village in Malolo ward, Kilosa district",
+      "Nyali village in Zombo ward, Kilosa district",
+      "Kigunga village in Zombo ward, Kilosa district",
+      "Madudumizi village in Zombo ward, Kilosa district",
+      "Ulaya Kibaoni village in Ulaya ward, Kilosa district",
+      "Ulaya Mbuyuni village in Ulaya ward, Kilosa district",
+      "Ulaya Nyameni village in Ulaya ward, Kilosa district",
+      "Unone village in Rudewa ward, Kilosa district",
+      "Gongwe village in Mvumi ward, Kilosa district",
+      "Kisongwe village in Lumbiji ward, Kilosa district",
+      "Iyenge village in Kibakwe ward, Mpwapwa district",
+      "Kibakwe village in Kibakwe ward, Mpwapwa district",
+      "Kingiti village in Kingiti ward, Mpwapwa district",
+      "Lukole village in Kingiti ward, Mpwapwa district",
+      "Mzase village in Berege ward, Kilosa district",
+      "Kitunduweta village in Mhenda ward, Kilosa district",
+      "Mhenda village in Mhenda ward, Kilosa district",
+      "Ilakala village in Mhenda ward, Kilosa district",
+      "Nyaranda village in Mhenda ward, Kilosa district"
+    ],
+    "treatment_ward_district_list": [
+      "Lumuma in Mpwapwa district",
+      "Luhundwa in Mpwapwa district",
+      "Wotta in Mpwapwa district",
+      "Mbuga in Mpwapwa district",
+      "Lufu in Mpwapwa district",
+      "Pwaga in Mpwapwa district",
+      "Galigali in Mpwapwa district",
+      "Wangi in Mpwapwa district",
+      "Massa in Mpwapwa district",
+      "Ipera in Mpwapwa district",
+      "Malolo in Mpwapwa district",
+      "Mang'aliza in Mpwapwa district",
+      "Magomeni in Kilosa district",
+      "Lumuma in Kilosa district",
+      "Kidete in Kilosa district",
+      "Masanze in Kilosa district",
+      "Kidodi in Kilosa district",
+      "Vidunda in Kilosa district",
+      "Malolo in Kilosa district",
+      "Uleling'ombe in Kilosa district"
+    ],
+    "control_ward_district_list": [
+      "Kibakwe in Mpwapwa district",
+      "Kingiti in Mpwapwa district",
+      "Mvumi in Kilosa district",
+      "Rudewa in Kilosa district",
+      "Lumbiji in Kilosa district",
+      "Ulaya in Kilosa district",
+      "Zombo in Kilosa district",
+      "Mhenda in Kilosa district",
+      "Masanze in Kilosa district",
+      "Mikumi in Kilosa district",
+      "Malolo in Kilosa district",
+      "Kisanga in Kilosa district"
+    ]
+  },
+  "ward_counts_by_region": {
+    "Dodoma": {
+      "treatment_wards": 12,
+      "program_control_wards": 2,
+      "other_wards": 195,
+      "total_wards": 209
+    },
+    "Iringa": {
+      "treatment_wards": 0,
+      "program_control_wards": 0,
+      "other_wards": 106,
+      "total_wards": 106
+    },
+    "Lindi": {
+      "treatment_wards": 0,
+      "program_control_wards": 0,
+      "other_wards": 152,
+      "total_wards": 152
+    },
+    "Manyara": {
+      "treatment_wards": 0,
+      "program_control_wards": 0,
+      "other_wards": 142,
+      "total_wards": 142
+    },
+    "Morogoro": {
+      "treatment_wards": 6,
+      "program_control_wards": 10,
+      "other_wards": 198,
+      "total_wards": 214
+    },
+    "Njombe": {
+      "treatment_wards": 0,
+      "program_control_wards": 0,
+      "other_wards": 107,
+      "total_wards": 107
+    },
+    "Pwani": {
+      "treatment_wards": 0,
+      "program_control_wards": 0,
+      "other_wards": 133,
+      "total_wards": 133
+    },
+    "Ruvuma": {
+      "treatment_wards": 0,
+      "program_control_wards": 0,
+      "other_wards": 173,
+      "total_wards": 173
+    },
+    "Singida": {
+      "treatment_wards": 0,
+      "program_control_wards": 0,
+      "other_wards": 136,
+      "total_wards": 136
+    },
+    "Tanga": {
+      "treatment_wards": 0,
+      "program_control_wards": 0,
+      "other_wards": 245,
+      "total_wards": 245
+    }
+  },
+  "spatial_bounds": {
+    "treatment_areas": {
+      "min_longitude": 4032011.454599999,
+      "min_latitude": -849694.9420999996,
+      "max_longitude": 4155915.180399999,
+      "max_latitude": -727479.4803000018
+    },
+    "program_control_areas": {
+      "min_longitude": 4045102.7256000005,
+      "min_latitude": -841279.4090000018,
+      "max_longitude": 4157117.282400001,
+      "max_latitude": -708281.4791000001
+    },
+    "all_program_locations": {
+      "min_longitude": 4032011.454599999,
+      "min_latitude": -849694.9420999996,
+      "max_longitude": 4157117.282400001,
+      "max_latitude": -708281.4791000001
+    },
+    "program_regions": {
+      "min_longitude": 3905302.1407000013,
+      "min_latitude": -1101399.1272,
+      "max_longitude": 4286537.3565,
+      "max_latitude": -466944.48790000007
+    },
+    "adjacent_regions": {
+      "min_longitude": 3727493.9767000005,
+      "min_latitude": -1309731.0571000017,
+      "max_longitude": 4450756.438499998,
+      "max_latitude": -381905.0406000018
+    },
+    "all_regions": {
+      "min_longitude": 3727493.9767000005,
+      "min_latitude": -1309731.0571000017,
+      "max_longitude": 4450756.438499998,
+      "max_latitude": -381905.0406000018
+    }
+  }
+}
