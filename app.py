@@ -193,7 +193,6 @@ treatment_villages_in_ward = filter_villages_for_ward(selected_ward)
 # If "All Treatment Wards" selected, show clickable ward list
 if selected_ward == 'All Treatment Wards' and ward_gdf is not None:
     st.sidebar.markdown("---")
-    st.sidebar.subheader("Quick Jump to Ward")
     
     st.markdown("**Treatment Wards**")
     for ward in sorted(treatment_wards):
