@@ -604,9 +604,4 @@ with st.expander("📋 Instructions", expanded=False):
     6. **If a village is mapped click save to the database**
    
     
-    ### Visual Guide:
-    - **Red grid cells/markers**: Treatment areas
-    - **Blue grid cells/markers**: Control areas  
-    - **Yellow dashed lines**: Ward boundaries
-    - **Satellite imagery**: Use for identifying actual village settlements
     """)
