@@ -1,10 +1,9 @@
+#imports
 import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
 from datetime import datetime
-import geopandas as gpd
-import json
 from pathlib import Path
 import sys
 from folium import plugins
