@@ -19,11 +19,10 @@ def init_gsheets():
 try:
     conn = init_gsheets()
     
-    # Load existing annotations from sheet
-    @st.cache_data(ttl=10)
+    # Load existing annotations from sheet - NO CACHING
     def load_annotations_from_sheet():
         try:
-            df = conn.read(worksheet="Sheet1", ttl=10)
+            df = conn.read(worksheet="Sheet1", ttl=0)  # ttl=0 = no cache
             if df.empty or len(df) == 0:
                 return []
             annotations = df.to_dict('records')
@@ -42,7 +41,7 @@ try:
     
     def is_village_already_mapped(village_name, ward_name):
         try:
-            df = conn.read(worksheet="Sheet1")
+            df = conn.read(worksheet="Sheet1", ttl=0)  # ttl=0 = no cache
             if df.empty:
                 return False
             existing = df[(df['village_name'] == village_name) & (df['ward_name'] == ward_name)]
@@ -54,20 +53,21 @@ try:
         try:
             annotation_copy = annotation.copy()
             annotation_copy['geometry'] = json.dumps(annotation_copy['geometry'])
-            df = conn.read(worksheet="Sheet1")
+            df = conn.read(worksheet="Sheet1", ttl=0)  # ttl=0 = no cache
             new_row = pd.DataFrame([annotation_copy])
             if df.empty:
                 df = new_row
             else:
                 df = pd.concat([df, new_row], ignore_index=True)
             conn.update(worksheet="Sheet1", data=df)
-            return True, "Saved"
+            return True, "Saved successfully"
         except Exception as e:
             return False, f"Error: {str(e)}"
+
     
     def delete_annotation_from_sheet(village_name, ward_name):
         try:
-            df = conn.read(worksheet="Sheet1")
+            df = conn.read(worksheet="Sheet1", ttl=0)  # ttl=0 = no cache
             df = df[~((df['village_name'] == village_name) & (df['ward_name'] == ward_name))]
             conn.update(worksheet="Sheet1", data=df)
             return True
@@ -75,23 +75,16 @@ try:
             st.error(f"Error deleting: {e}")
             return False
     
-    sheets_available = True
+    sheets_available = True  
     
 except Exception as e:
     st.sidebar.error(f"Google Sheets not available: {e}")
     sheets_available = False
-    def load_annotations_from_sheet():
-        return []
-    def is_village_already_mapped(v, w):
-        return False
-    def save_annotation_to_sheet(a):
-        return False, "Offline"
-    def delete_annotation_from_sheet(v, w):
-        return False
+
 
 
 # Page config
-st.set_page_config(page_title="Treatment area mapping RUbeho CCT", layout="wide")
+st.set_page_config(page_title="Treatment area mapping Rubeho CCT", layout="wide")
 st.title("🌳 Treatment area mapping tool")
 
 # Initialize session state for annotations - MUST BE EARLY ###HERE
@@ -135,15 +128,17 @@ try:
     grid_gdf = geospatial_data['grid']
     ward_gdf = geospatial_data['wards']
     village_data = geospatial_data['villages']
-    @st.cache_data
-    def filter_villages_for_ward(selected_ward, ward_gdf_hash, village_data_hash):
-        """Cache village filtering per ward to avoid reprocessing"""
-        if selected_ward == 'All Target Areas' or not village_data:
-            return [], []
+    
+    
+    #
+    def filter_villages_for_ward(selected_ward):
+        """Filter villages for the selected ward - TREATMENT ONLY"""
+        if selected_ward == 'All Treatment Wards' or not village_data:
+            return []
         
         ward_info = ward_gdf[ward_gdf['ward_name'] == selected_ward]
         if ward_info.empty:
-            return [], []
+            return []
         
         ward_district = ward_info.iloc[0]['dist_name']
         
@@ -153,15 +148,8 @@ try:
                 if selected_ward in village and ward_district in village:
                     village_name = village.split(' village in')[0]
                     treatment_villages.append(village_name)
-        
-        control_villages = []
-        if 'control_villages' in village_data:
-            for village in village_data['control_villages']:
-                if selected_ward in village and ward_district in village:
-                    village_name = village.split(' village in')[0]
-                    control_villages.append(village_name)
-        
-        return treatment_villages, control_villages
+        return treatment_villages
+
 
     # Debug info
     if st.sidebar.checkbox("Show debug info"):
@@ -176,34 +164,48 @@ except ImportError as e:
     ward_gdf = None
     village_data = {}
 
-# Sidebar controls
-st.sidebar.header("Controls")
-
-
-# Map settings
-st.sidebar.header("Map Settings")
-
-
 # Navigation controls if ward data is available
 if ward_gdf is not None:
     st.sidebar.header("Navigation")
     
-    # Get treatment and control wards
+    # Get ONLY treatment wards
     treatment_wards = ward_gdf[ward_gdf['is_treatment'] == True]['ward_name'].unique()
-    control_wards = ward_gdf[ward_gdf['is_program_control'] == True]['ward_name'].unique()
     
-all_target_wards = list(treatment_wards) + list(control_wards)
-ward_options = ['All Target Areas'] + sorted(all_target_wards)  # CHANGED: 'All Target Areas' instead of 'Custom Location'
+ward_options = ['All Treatment Wards'] + sorted(list(treatment_wards))
 
-selected_ward = st.sidebar.selectbox("Jump to ward:", ward_options)
-# Filter villages for the selected ward
-treatment_villages_in_ward, control_villages_in_ward = filter_villages_for_ward(
-    selected_ward, 
-    id(ward_gdf),  # Hash for cache invalidation
-    id(village_data)
+# Check if there's a ward in query params (from quick jump buttons)
+default_ward = 'All Treatment Wards'
+if "ward" in st.query_params:
+    requested_ward = st.query_params["ward"]
+    if requested_ward in ward_options:
+        default_ward = requested_ward
+    # Clear the query param after using it
+    st.query_params.clear()
+
+selected_ward = st.sidebar.selectbox(
+    "Jump to ward:", 
+    ward_options,
+    index=ward_options.index(default_ward) if default_ward in ward_options else 0
 )
+
+# Filter villages for the selected ward
+treatment_villages_in_ward = filter_villages_for_ward(selected_ward)
+
+# If "All Treatment Wards" selected, show clickable ward list
+if selected_ward == 'All Treatment Wards' and ward_gdf is not None:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Quick Jump to Ward")
+    
+    st.markdown("**Treatment Wards**")
+    for ward in sorted(treatment_wards):
+        if st.button(f"📍 {ward}", key=f"jump_t_{ward}", use_container_width=True):
+            st.query_params["ward"] = ward
+            st.rerun()
+    
+    st.sidebar.markdown("---")
+
 # Show villages for selected ward only
-if selected_ward not in ['All Target Areas']:
+if selected_ward not in ['All Treatment Wards']:
     st.sidebar.header(f"Villages in {selected_ward}")
     
     if treatment_villages_in_ward:
@@ -212,26 +214,19 @@ if selected_ward not in ['All Target Areas']:
             for i, village in enumerate(treatment_villages_in_ward):
                 st.write(f"{i+1}. {village}")
     
-    if control_villages_in_ward:
-        with st.sidebar.expander("Control Villages to Map", expanded=False):
-            st.write(f"**{len(control_villages_in_ward)} villages:**")
-            for i, village in enumerate(control_villages_in_ward):
-                st.write(f"{i+1}. {village}")
-    
-    if not treatment_villages_in_ward and not control_villages_in_ward:
+    if not treatment_villages_in_ward:
         st.sidebar.warning("No villages found for this ward in the database")
 
 # Annotation mode selection
 # Village selector for annotation
 st.sidebar.header("Select Village to Map")
 
-if selected_ward not in ['All Target Areas']:
-    # Combine treatment and control villages for selection
+if selected_ward not in ['All Treatment Wards']:
+    # Only treatment villages
     all_villages = []
     if treatment_villages_in_ward:
         all_villages.extend([(v, 'Treatment') for v in treatment_villages_in_ward])
-    if control_villages_in_ward:
-        all_villages.extend([(v, 'Control') for v in control_villages_in_ward])
+
     
     if all_villages:
         village_options = [f"{v[0]} ({v[1]})" for v in all_villages]
@@ -261,27 +256,25 @@ def create_map():
     """Create the folium map with all layers"""
     
     # Determine map center and zoom
-    if ward_gdf is not None and selected_ward not in ['All Target Areas']:
-        # SPECIFIC WARD SELECTED - zoom to it and show grid
+    if ward_gdf is not None and selected_ward not in ['All Treatment Wards']:
+        # SPECIFIC WARD SELECTED - zoom to it
         ward_subset = ward_gdf[ward_gdf['ward_name'] == selected_ward]
         if not ward_subset.empty:
             bounds = ward_subset.total_bounds
             center_lat = (bounds[1] + bounds[3]) / 2
             center_lon = (bounds[0] + bounds[2]) / 2
             zoom = 13
-            show_grid = True
         else:
             bounds = ward_gdf.total_bounds
             center_lat = (bounds[1] + bounds[3]) / 2
             center_lon = (bounds[0] + bounds[2]) / 2
             zoom = 9
-            show_grid = False
-    elif ward_gdf is not None and selected_ward == 'All Target Areas':
+    elif ward_gdf is not None and selected_ward == 'All Treatment Wards':
+        # ALL TARGET AREAS - show all treatment and control wards
         bounds = ward_gdf.total_bounds
         center_lat = (bounds[1] + bounds[3]) / 2
         center_lon = (bounds[0] + bounds[2]) / 2
-        zoom = 9
-        show_grid = False
+        zoom = 10
     else:
         if st.session_state.annotations:
             lats = [ann['latitude'] for ann in st.session_state.annotations]
@@ -293,8 +286,6 @@ def create_map():
             center_lat = -6.0
             center_lon = 35.0
             zoom = 6
-        show_grid = False
-
     # Create base map with no default tiles
     m = folium.Map(
         location=[center_lat, center_lon],
@@ -324,29 +315,51 @@ def create_map():
         show=True  # Make this the default visible layer
     ).add_to(m)
 
-    # Add ward boundaries if available - ONLY FOR SELECTED WARD
-    if ward_gdf is not None and selected_ward not in ['All Target Areas']:
-        # Filter to only the selected ward
-        selected_ward_gdf = ward_gdf[ward_gdf['ward_name'] == selected_ward]
-        
-        if not selected_ward_gdf.empty:
-            folium.GeoJson(
-                selected_ward_gdf,
-                style_function=lambda x: {
-                    'color': 'yellow',
-                    'weight': 2,
-                    'fillOpacity': 0,
-                    'opacity': 0.7,
-                    'dashArray': '5,5'
-                },
-                tooltip=folium.GeoJsonTooltip(
-                    fields=['ward_name', 'dist_name', 'reg_name'],
-                    aliases=['Ward:', 'District:', 'Region:'],
-                    localize=True
-                ),
-                name='Ward Boundary'
-            ).add_to(m)
+# Add ward boundaries
+    if ward_gdf is not None:
+        if selected_ward == 'All Treatment Wards':
+            # Show ONLY treatment ward boundaries
+            target_ward_gdf = ward_gdf[ward_gdf['is_treatment'] == True]
 
+            
+            if not target_ward_gdf.empty:
+                folium.GeoJson(
+                    target_ward_gdf,
+                    style_function=lambda x: {
+                        'color': 'red',
+                        'weight': 2,
+                        'fillOpacity': 0.1,
+                        'opacity': 0.7,
+                        'dashArray': '5,5'
+                    },
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=['ward_name', 'dist_name', 'reg_name'],
+                        aliases=['Ward:', 'District:', 'Region:'],
+                        localize=True
+                    ),
+                    name='Ward Boundaries'
+                ).add_to(m)
+        else:
+            # Show only the selected ward boundary
+            selected_ward_gdf = ward_gdf[ward_gdf['ward_name'] == selected_ward]
+            
+            if not selected_ward_gdf.empty:
+                folium.GeoJson(
+                    selected_ward_gdf,
+                    style_function=lambda x: {
+                        'color': 'yellow',
+                        'weight': 2,
+                        'fillOpacity': 0,
+                        'opacity': 0.7,
+                        'dashArray': '5,5'
+                    },
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=['ward_name', 'dist_name', 'reg_name'],
+                        aliases=['Ward:', 'District:', 'Region:'],
+                        localize=True
+                    ),
+                    name='Ward Boundary'
+                ).add_to(m)
     # Add drawing tools for polygon annotation
     draw = plugins.Draw(
         export=True,
@@ -391,14 +404,13 @@ def create_map():
 st.subheader("Click on the map to annotate areas")
 
 # Layout: map and info panel
-col1, col2 = st.columns([3, 1])
-
+col1, col2 = st.columns([4, 1])
 with col1:
     m = create_map()  # Call the function here
     map_data = st_folium(
         m, 
-        width=900, 
-        height=600, 
+        width=900,  # Increased from 900
+        height=900,  # Increased from 600 for better visibility
         returned_objects=["all_drawings", "last_active_drawing"],
         key=f"map_{selected_ward}_{len(st.session_state.annotations)}"
     )
@@ -408,7 +420,7 @@ with col2:
     st.subheader("Current Context")
     
     # Show current ward if selected
-    if ward_gdf is not None and selected_ward not in ['All Target Areas']:  # CHANGED: updated condition
+    if ward_gdf is not None and selected_ward not in ['All Treatment Wards']:  # CHANGED: updated condition
         st.write(f"**Focus:** {selected_ward}")
         ward_info = ward_gdf[ward_gdf['ward_name'] == selected_ward]
         if not ward_info.empty:
@@ -418,9 +430,7 @@ with col2:
             
             if ward_row['is_treatment']:
                 st.success("Treatment Ward")
-            elif ward_row['is_program_control']:
-                st.info("Control Ward")
-    
+                
     if village_name:
         st.write(f"**Mapping:** {village_name}")
         st.write(f"**Type:** {village_type}")
@@ -437,34 +447,90 @@ with col2:
     st.metric("Treatment Areas", treatment_count)
     st.metric("Control Areas", control_count)
 
+
 # Handle map clicks
 # Capture drawn polygons
 if map_data and map_data.get('last_active_drawing') and village_name:
     drawing = map_data['last_active_drawing']
     
-    if sheets_available and is_village_already_mapped(village_name, selected_ward):
-        st.warning(f"⚠️ {village_name} in {selected_ward} already mapped!")
-    else:
-        new_annotation = {
-            'village_name': village_name,
-            'village_type': village_type,
-            'is_treatment': is_treatment,
-            'ward_name': selected_ward,
-            'geometry': drawing['geometry'],
-            'timestamp': datetime.now().isoformat(),
-        }
-        
+    # Store the pending annotation in session state (don't save yet)
+    st.session_state['pending_annotation'] = {
+        'village_name': village_name,
+        'village_type': village_type,
+        'is_treatment': is_treatment,
+        'ward_name': selected_ward,
+        'geometry': drawing['geometry'],
+        'timestamp': datetime.now().isoformat(),
+    }
+    
+    st.info(f"✏️ Polygon drawn for **{village_name}** - Click 'Save to Database' below to confirm")
+
+# Show save button if there's a pending annotation
+if 'pending_annotation' in st.session_state and st.session_state['pending_annotation']:
+    st.markdown("---")
+    st.subheader("💾 Pending Annotation")
+    
+    col_preview, col_actions = st.columns([2, 1])
+    
+    with col_preview:
+        pending = st.session_state['pending_annotation']
+        st.write(f"**Village:** {pending['village_name']}")
+        st.write(f"**Ward:** {pending['ward_name']}")
+        st.write(f"**Type:** {pending['village_type']}")
+    
+    with col_actions:
+        # Check if already mapped (only when user tries to save)
+        already_mapped = False
         if sheets_available:
-            success, message = save_annotation_to_sheet(new_annotation)
-            if success:
-                st.session_state.annotations.append(new_annotation)
-                st.cache_data.clear()
-                st.success(f"✓ {village_name} saved to database")
-            else:
-                st.error(f"❌ {message}")
+            # Check in current session state first (no API call)
+            already_mapped = any(
+                ann.get('village_name') == pending['village_name'] and 
+                ann.get('ward_name') == pending['ward_name'] 
+                for ann in st.session_state.annotations
+            )
+        
+        if already_mapped:
+            st.warning("⚠️ Already mapped!")
+            if st.button("🗑️ Clear Pending", type="secondary", use_container_width=True):
+                del st.session_state['pending_annotation']
+                st.rerun()
         else:
-            st.session_state.annotations.append(new_annotation)
-            st.warning("⚠️ Offline - not saved")
+            if st.button("💾 Save to Database", type="primary", use_container_width=True):
+                if sheets_available:
+                    success, message = save_annotation_to_sheet(pending)
+                    if success:
+                        # Reload from sheet to ensure sync
+                        st.session_state.annotations = load_annotations_from_sheet()
+                        st.success(f"✅ {pending['village_name']} saved successfully!")
+                        del st.session_state['pending_annotation']
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Save failed: {message}")
+                else:
+                    st.session_state.annotations.append(pending)
+                    st.success("✅ Saved locally (offline mode)")
+                    del st.session_state['pending_annotation']
+                    st.rerun()
+            
+            if st.button("🗑️ Discard", type="secondary", use_container_width=True):
+                del st.session_state['pending_annotation']
+                st.rerun()
+    
+    st.markdown("---")
+
+# Manual refresh option
+col_refresh, col_spacer = st.columns([1, 3])
+with col_refresh:
+    if st.button("🔄 Refresh from Database", help="Reload annotations from Google Sheets"):
+        if sheets_available:
+            st.session_state.annotations = load_annotations_from_sheet()
+            st.success("✅ Refreshed from database")
+            st.rerun()
+        else:
+            st.warning("⚠️ Offline mode - no database to refresh from")
+
+st.markdown("---")
+
 
 # Display current annotations
 st.subheader(f"Current Annotations ({len(st.session_state.annotations)})")
@@ -491,14 +557,11 @@ if st.session_state.annotations:
         with col_delete:
             if st.button("🗑️", key=f"delete_{idx}", help="Delete this annotation"):
                 ann = st.session_state.annotations[idx]
-            if sheets_available:
-                if delete_annotation_from_sheet(ann['village_name'], ann['ward_name']):
-                    st.session_state.annotations.pop(idx)
-                    st.cache_data.clear()
-                    st.rerun()
-            else:
-                st.session_state.annotations.pop(idx)
-                st.rerun()
+                if sheets_available:
+                    if delete_annotation_from_sheet(ann['village_name'], ann['ward_name']):
+                        # Reload from sheet to ensure sync
+                        st.session_state.annotations = load_annotations_from_sheet()
+                        st.rerun()
     st.write("---")
     
     # Export buttons
