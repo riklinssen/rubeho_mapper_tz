@@ -399,7 +399,7 @@ def create_map():
 
 
 # Create and display map (THIS IS OUTSIDE THE FUNCTION)
-st.subheader("Click on the map to annotate areas")
+st.subheader("Click on the relevant ward to create village areas")
 
 # Layout: map and info panel
 col1, col2 = st.columns([4, 1])
@@ -592,19 +592,17 @@ else:
 # Instructions
 with st.expander("📋 Instructions", expanded=False):
     st.markdown("""
-    ### Enhanced Annotation Workflow:
+    ### Workflow:
     
-    1. **Choose satellite imagery** from the sidebar for best village visibility
-    2. **Navigate to specific wards** using the dropdown to focus on target areas  
-    3. **Reference village lists** in the sidebar to know which settlements to locate
-    4. **Select annotation type** to specify what you're marking:
-       - **Treatment Village Location**: Actual village settlements receiving intervention
-       - **Control Village Location**: Control village settlements
-       - **Treatment Ward (Other Areas)**: Other areas within treatment wards
-       - **Control Ward (Other Areas)**: Other areas within control wards
-    5. **Click on the map** to place annotations
-    6. **Download your work** regularly using the CSV/Map buttons
-    7. **Resume work** by uploading your CSV file
+    
+    1. **Navigate to specific wards** using the menu on top to focus on relevant wards  
+    2. **Select a village to map** in the dropdown in the sidebar to know which settlements/village to locate
+    3. **Locate the village** On the map on the right-hand side select the basemap. Start with openstreetmap to see if the village is available. Then select  either ESRI or google maps to see the imagery
+    4. **Click on draw a polygon** on left hand side of the map.
+    5. **Draw lines around the outline of the village/settlement.***
+        - Once done, click the first point. 
+    6. **If a village is mapped click save to the database**
+   
     
     ### Visual Guide:
     - **Red grid cells/markers**: Treatment areas
