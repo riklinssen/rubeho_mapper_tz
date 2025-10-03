@@ -678,11 +678,14 @@ with tab2:
         district_progress['remaining'] = district_progress['total'] - district_progress['mapped']
         district_progress['completion_pct'] = (district_progress['mapped'] / district_progress['total'] * 100).round(1)
         
+        # Format the dataframe for display
+        district_progress_display = district_progress.copy()
+        district_progress_display['completion_pct'] = district_progress_display['completion_pct'].apply(lambda x: f"{x:.1f}%")
+
         st.dataframe(
-            district_progress.style.format({'completion_pct': '{:.1f}%'}).background_gradient(subset=['completion_pct'], cmap='RdYlGn', vmin=0, vmax=100),
+            district_progress_display,
             use_container_width=True
         )
-
         # Detailed village list
         st.subheader("Detailed Village List")
         
