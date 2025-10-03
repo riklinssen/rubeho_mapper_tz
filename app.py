@@ -18,13 +18,14 @@ import json
 st.set_page_config(page_title="Treatment area mapping Rubeho CCT", layout="wide")
 
 # ============================================================================
-# GOOGLE SHEETS SETUP
+# GOOGLE SHEETS SETUP - OPTIMIZED
 # ============================================================================
 @st.cache_resource
 def init_gsheets():
     return st.connection("gsheets", type=GSheetsConnection)
 
 def load_annotations_from_sheet():
+    """Load from sheet and cache in session state"""
     try:
         df = conn.read(worksheet="Sheet1", ttl=0)
         if df.empty or len(df) == 0:
@@ -60,35 +61,51 @@ def load_reference_villages_from_sheet():
         return None
 
 def is_village_already_mapped(village_name, ward_name):
-    try:
-        df = conn.read(worksheet="Sheet1", ttl=0)
-        if df.empty:
-            return False
-        existing = df[(df['village_name'] == village_name) & (df['ward_name'] == ward_name)]
-        return not existing.empty
-    except:
-        return False
+    """Check in session state instead of reading from sheet - OPTIMIZED"""
+    return any(
+        ann.get('village_name') == village_name and 
+        ann.get('ward_name') == ward_name 
+        for ann in st.session_state.annotations
+    )
 
 def save_annotation_to_sheet(annotation):
+    """Save to sheet - reads once, writes once - OPTIMIZED"""
     try:
         annotation_copy = annotation.copy()
         annotation_copy['geometry'] = json.dumps(annotation_copy['geometry'])
+        
+        # Read current data
         df = conn.read(worksheet="Sheet1", ttl=0)
         new_row = pd.DataFrame([annotation_copy])
+        
         if df.empty:
             df = new_row
         else:
             df = pd.concat([df, new_row], ignore_index=True)
+        
+        # Write back
         conn.update(worksheet="Sheet1", data=df)
+        
+        # Update session state immediately without re-reading - SAVES 1 API CALL
+        st.session_state.annotations.append(annotation)
+        
         return True, "Saved successfully"
     except Exception as e:
         return False, f"Error: {str(e)}"
 
 def delete_annotation_from_sheet(village_name, ward_name):
+    """Delete from sheet - reads once, writes once - OPTIMIZED"""
     try:
         df = conn.read(worksheet="Sheet1", ttl=0)
         df = df[~((df['village_name'] == village_name) & (df['ward_name'] == ward_name))]
         conn.update(worksheet="Sheet1", data=df)
+        
+        # Update session state immediately without re-reading - SAVES 1 API CALL
+        st.session_state.annotations = [
+            ann for ann in st.session_state.annotations 
+            if not (ann.get('village_name') == village_name and ann.get('ward_name') == ward_name)
+        ]
+        
         return True
     except Exception as e:
         st.error(f"Error deleting: {e}")
@@ -100,7 +117,6 @@ try:
 except Exception as e:
     st.sidebar.error(f"Google Sheets not available: {e}")
     sheets_available = False
-
 # ============================================================================
 # GEOSPATIAL DATA SETUP
 # ============================================================================
@@ -460,7 +476,6 @@ with tab1:
                     if sheets_available:
                         success, message = save_annotation_to_sheet(pending)
                         if success:
-                            st.session_state.annotations = load_annotations_from_sheet()
                             st.success(f"✅ {pending['village_name']} saved successfully!")
                             del st.session_state['pending_annotation']
                             st.rerun()
@@ -511,7 +526,6 @@ with tab1:
                 if st.button("🗑️", key=f"delete_{idx}"):
                     if sheets_available:
                         if delete_annotation_from_sheet(ann['village_name'], ann['ward_name']):
-                            st.session_state.annotations = load_annotations_from_sheet()
                             st.rerun()
         
         st.write("---")
