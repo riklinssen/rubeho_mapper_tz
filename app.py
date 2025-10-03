@@ -574,13 +574,17 @@ with st.expander("📋 Instructions", expanded=False):
     ### Workflow:
     
     
-    1. **Navigate to specific wards** using the menu on top to focus on relevant wards  
+    1. **Navigate to specific wards** using the dropdown menu on the left to focus on relevant wards  
     2. **Select a village to map** in the dropdown in the sidebar to know which settlements/village to locate
-    3. **Locate the village** On the map on the right-hand side select the basemap. Start with openstreetmap to see if the village is available. Then select  either ESRI or google maps to see the imagery
+    3. **Locate the village** On the map on the right-hand side select the basemap. 
+        Start with openstreetmap to see if the village is available and to get more context of the location.
+        Then select  either ESRI or google maps to see the imagery in which you can see the settlements/villages. 
     4. **Click on draw a polygon** on left hand side of the map.
     5. **Draw lines around the outline of the village/settlement.***
         - Once done, click the first point. 
-    6. **If a village is mapped click save to the database**
+    6. **If a village outline is mapped**, this will show-up as 'pending'. 
+                Check if you have highlighted the outline correcctly. 
+    7.  IF the outline is annotated correctly **click save to the database**
    
     
     """)
