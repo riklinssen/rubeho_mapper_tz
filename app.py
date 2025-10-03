@@ -20,80 +20,86 @@ st.set_page_config(page_title="Treatment area mapping Rubeho CCT", layout="wide"
 # ============================================================================
 # GOOGLE SHEETS SETUP
 # ============================================================================
-
-# Initialize Google Sheets connection
 @st.cache_resource
 def init_gsheets():
     return st.connection("gsheets", type=GSheetsConnection)
 
+def load_annotations_from_sheet():
+    try:
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        if df.empty or len(df) == 0:
+            return []
+        annotations = df.to_dict('records')
+        for ann in annotations:
+            if 'geometry' in ann and isinstance(ann['geometry'], str):
+                try:
+                    ann['geometry'] = json.loads(ann['geometry'])
+                except:
+                    pass
+            if 'is_treatment' in ann:
+                ann['is_treatment'] = str(ann['is_treatment']).lower() == 'true'
+        return annotations
+    except Exception as e:
+        st.sidebar.warning(f"Could not load from Google Sheets: {e}")
+        return []
+
+def load_reference_villages_from_sheet():
+    """Load the reference list of treatment villages from Sheet2"""
+    try:
+        df = conn.read(worksheet="ReferenceVillages", ttl=0)
+        if df.empty or len(df) == 0:
+            return None
+        # Normalize: strip whitespace and ensure consistent column names
+        df.columns = df.columns.str.strip().str.lower()
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].str.strip()
+        return df
+    except Exception as e:
+        st.sidebar.warning(f"Could not load reference villages from Google Sheets: {e}")
+        return None
+
+def is_village_already_mapped(village_name, ward_name):
+    try:
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        if df.empty:
+            return False
+        existing = df[(df['village_name'] == village_name) & (df['ward_name'] == ward_name)]
+        return not existing.empty
+    except:
+        return False
+
+def save_annotation_to_sheet(annotation):
+    try:
+        annotation_copy = annotation.copy()
+        annotation_copy['geometry'] = json.dumps(annotation_copy['geometry'])
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        new_row = pd.DataFrame([annotation_copy])
+        if df.empty:
+            df = new_row
+        else:
+            df = pd.concat([df, new_row], ignore_index=True)
+        conn.update(worksheet="Sheet1", data=df)
+        return True, "Saved successfully"
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+def delete_annotation_from_sheet(village_name, ward_name):
+    try:
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        df = df[~((df['village_name'] == village_name) & (df['ward_name'] == ward_name))]
+        conn.update(worksheet="Sheet1", data=df)
+        return True
+    except Exception as e:
+        st.error(f"Error deleting: {e}")
+        return False
+
 try:
     conn = init_gsheets()
-    
-    # Load existing annotations from sheet - NO CACHING
-    def load_annotations_from_sheet():
-        try:
-            df = conn.read(worksheet="Sheet1", ttl=0)  # ttl=0 = no cache
-            if df.empty or len(df) == 0:
-                return []
-            annotations = df.to_dict('records')
-            for ann in annotations:
-                if 'geometry' in ann and isinstance(ann['geometry'], str):
-                    try:
-                        ann['geometry'] = json.loads(ann['geometry'])
-                    except:
-                        pass
-                if 'is_treatment' in ann:
-                    ann['is_treatment'] = str(ann['is_treatment']).lower() == 'true'
-            return annotations
-        except Exception as e:
-            st.sidebar.warning(f"Could not load from Google Sheets: {e}")
-            return []
-    
-    def is_village_already_mapped(village_name, ward_name):
-        try:
-            df = conn.read(worksheet="Sheet1", ttl=0)  # ttl=0 = no cache
-            if df.empty:
-                return False
-            existing = df[(df['village_name'] == village_name) & (df['ward_name'] == ward_name)]
-            return not existing.empty
-        except:
-            return False
-    
-    def save_annotation_to_sheet(annotation):
-        try:
-            annotation_copy = annotation.copy()
-            annotation_copy['geometry'] = json.dumps(annotation_copy['geometry'])
-            df = conn.read(worksheet="Sheet1", ttl=0)  # ttl=0 = no cache
-            new_row = pd.DataFrame([annotation_copy])
-            if df.empty:
-                df = new_row
-            else:
-                df = pd.concat([df, new_row], ignore_index=True)
-            conn.update(worksheet="Sheet1", data=df)
-            return True, "Saved successfully"
-        except Exception as e:
-            return False, f"Error: {str(e)}"
-
-    
-    def delete_annotation_from_sheet(village_name, ward_name):
-        try:
-            df = conn.read(worksheet="Sheet1", ttl=0)  # ttl=0 = no cache
-            df = df[~((df['village_name'] == village_name) & (df['ward_name'] == ward_name))]
-            conn.update(worksheet="Sheet1", data=df)
-            return True
-        except Exception as e:
-            st.error(f"Error deleting: {e}")
-            return False
-    
-    sheets_available = True  
-    
+    sheets_available = True
 except Exception as e:
     st.sidebar.error(f"Google Sheets not available: {e}")
     sheets_available = False
-
-
-
-
 
 # ============================================================================
 # GEOSPATIAL DATA SETUP
@@ -129,13 +135,9 @@ try:
     
     # Load all data
     geospatial_data = load_all_geospatial_data()
-    grid_gdf = geospatial_data['grid']
     ward_gdf = geospatial_data['wards']
     village_data = geospatial_data['villages']
-    
-    
-    #
-    
+ 
 except ImportError as e:
     st.error(f"Could not import map utilities: {e}")
     st.info("Running in basic mode without geospatial features")
@@ -152,28 +154,41 @@ if 'annotations' not in st.session_state:
     else:
         st.session_state.annotations = []
 
+if 'reference_villages' not in st.session_state:
+    if sheets_available:
+        st.session_state.reference_villages = load_reference_villages_from_sheet()
+    else:
+        st.session_state.reference_villages = None
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 def filter_villages_for_ward(selected_ward):
-        """Filter villages for the selected ward - TREATMENT ONLY"""
-        if selected_ward == 'All Treatment Wards' or not village_data:
-            return []
-        
+    """Filter villages for the selected ward - TREATMENT ONLY"""
+    if selected_ward == 'All Treatment Wards':
+        return []
+    
+    if st.session_state.reference_villages is not None:
+        # Use Google Sheet reference data
+        df = st.session_state.reference_villages
+        ward_villages = df[
+            df['ward_name'].str.strip().str.upper() == selected_ward.strip().upper()
+        ]
+        return ward_villages['village_name'].tolist()
+    elif village_data and 'treatment_villages' in village_data:
+        # Fallback to JSON method
         ward_info = ward_gdf[ward_gdf['ward_name'] == selected_ward]
         if ward_info.empty:
             return []
         
         ward_district = ward_info.iloc[0]['dist_name']
-        
         treatment_villages = []
-        if 'treatment_villages' in village_data:
-            for village in village_data['treatment_villages']:
-                if selected_ward in village and ward_district in village:
-                    village_name = village.split(' village in')[0]
-                    treatment_villages.append(village_name)
+        for village in village_data['treatment_villages']:
+            if selected_ward in village and ward_district in village:
+                village_name = village.split(' village in')[0]
+                treatment_villages.append(village_name)
         return treatment_villages
-
+    
+    return []
 
 def create_map(selected_ward, annotations):
     """Create the folium map with all layers"""
@@ -275,6 +290,25 @@ tab1, tab2 = st.tabs(["🗺️ Mapping Interface", "📊 Progress Tracker"])
 # TAB 1: MAPPING INTERFACE
 # ============================================================================
 with tab1:
+    # Handle navigation from Progress Tracker tab
+    ward_from_params = None
+    village_from_params = None
+    
+    if "ward" in st.query_params:
+        ward_from_params = st.query_params["ward"]
+    
+    if "village" in st.query_params:
+        village_from_params = st.query_params["village"]
+    
+    if "tab" in st.query_params and st.query_params["tab"] == "mapping":
+        del st.query_params["tab"]
+    
+    # Initialize variables that will be used throughout the tab
+    village_name = None
+    village_type = None
+    is_treatment = True
+    selected_ward = 'All Treatment Wards'
+    
     # Sidebar navigation
     if ward_gdf is not None:
         st.sidebar.header("Navigation")
@@ -282,11 +316,11 @@ with tab1:
         ward_options = ['All Treatment Wards'] + sorted(list(treatment_wards))
         
         default_ward = 'All Treatment Wards'
-        if "ward" in st.query_params:
-            requested_ward = st.query_params["ward"]
-            if requested_ward in ward_options:
-                default_ward = requested_ward
-            st.query_params.clear()
+        if ward_from_params and ward_from_params in ward_options:
+            default_ward = ward_from_params
+            # Clear the ward param after using it
+            if "ward" in st.query_params:
+                del st.query_params["ward"]
         
         selected_ward = st.sidebar.selectbox(
             "Jump to ward:", 
@@ -312,8 +346,24 @@ with tab1:
         st.sidebar.header("Select Village to Map")
         if selected_ward not in ['All Treatment Wards'] and treatment_villages_in_ward:
             village_options = [f"{v} (Treatment)" for v in treatment_villages_in_ward]
-            selected_village_option = st.sidebar.selectbox("Choose village:", village_options)
             
+            # Auto-select village if coming from progress tracker
+            default_village_index = 0
+            if village_from_params:
+                matching_option = f"{village_from_params} (Treatment)"
+                if matching_option in village_options:
+                    default_village_index = village_options.index(matching_option)
+                    # Clear the village param after using it
+                    if "village" in st.query_params:
+                        del st.query_params["village"]
+            
+            selected_village_option = st.sidebar.selectbox(
+                "Choose village:", 
+                village_options,
+                index=default_village_index
+            )
+            
+            # EXTRACT THE VILLAGE INFO FROM THE SELECTION
             village_name = selected_village_option.split(' (')[0]
             village_type = 'Treatment'
             is_treatment = True
@@ -325,9 +375,7 @@ with tab1:
                 st.sidebar.info("Select a specific ward to see villages")
             else:
                 st.sidebar.warning("No villages to map in this ward")
-            village_name = None
-            village_type = None
-            is_treatment = True
+
     
     # Debug info
     if st.sidebar.checkbox("Show debug info"):
@@ -509,206 +557,215 @@ with tab1:
 # ============================================================================
 with tab2:
     st.header("📊 Progress Tracker - Treatment Villages")
-
-
-# # Create and display map (THIS IS OUTSIDE THE FUNCTION)
-# st.subheader("Click on the relevant ward to create village areas")
-
-# # Layout: map and info panel
-# col1, col2 = st.columns([4, 1])
-# with col1:
-#     m = create_map()  # Call the function here
-#     map_data = st_folium(
-#         m, 
-#         width=900,  # Increased from 900
-#         height=900,  # Increased from 600 for better visibility
-#         returned_objects=["all_drawings", "last_active_drawing"],
-#         key=f"map_{selected_ward}_{len(st.session_state.annotations)}"
-#     )
-
-
-# with col2:
-#     st.subheader("Current Context")
     
-#     # Show current ward if selected
-#     if ward_gdf is not None and selected_ward not in ['All Treatment Wards']:  # CHANGED: updated condition
-#         st.write(f"**Focus:** {selected_ward}")
-#         ward_info = ward_gdf[ward_gdf['ward_name'] == selected_ward]
-#         if not ward_info.empty:
-#             ward_row = ward_info.iloc[0]
-#             st.write(f"**District:** {ward_row['dist_name']}")
-#             st.write(f"**Region:** {ward_row['reg_name']}")
-            
-#             if ward_row['is_treatment']:
-#                 st.success("Treatment Ward")
+    # Refresh button
+    col_refresh_top, col_spacer_top = st.columns([1, 3])
+    with col_refresh_top:
+        if st.button("🔄 Refresh from Database", key="refresh_progress"):
+            if sheets_available:
+                st.session_state.annotations = load_annotations_from_sheet()
+                st.session_state.reference_villages = load_reference_villages_from_sheet()
+                st.success("✅ Refreshed!")
+                st.rerun()
+    
+    if st.session_state.reference_villages is None:
+        st.error("Could not load reference village list from Google Sheets 'ReferenceVillages' tab.")
+        st.info("Make sure you have a 'ReferenceVillages' worksheet with columns: village_name, ward_name, district_name, region_name")
+    else:
+        # Use the reference villages from Google Sheet
+        df_treatment = st.session_state.reference_villages.copy()
+        df_treatment = df_treatment.rename(columns={
+            'village_name': 'village',
+            'ward_name': 'ward',
+            'district_name': 'district',
+            'region_name': 'region'
+        })
+        
+        # Get mapped villages FROM DATABASE (Sheet1)
+        mapped_villages = []
+        for ann in st.session_state.annotations:
+            mapped_villages.append({
+                'village': str(ann.get('village_name', '')).strip().upper(),
+                'ward': str(ann.get('ward_name', '')).strip().upper()
+            })
+
+        
+        df_mapped = pd.DataFrame(mapped_villages) if mapped_villages else pd.DataFrame(columns=['village', 'ward'])
+        
+        # Mark mapped status with case-insensitive matching
+        def is_mapped(row):
+            if df_mapped.empty:
+                return False
+            village_upper = str(row['village']).strip().upper()
+            ward_upper = str(row['ward']).strip().upper()
+            return ((df_mapped['village'] == village_upper) & (df_mapped['ward'] == ward_upper)).any()
+        
+        df_treatment['mapped'] = df_treatment.apply(is_mapped, axis=1)
+        
+        # Overall statistics
+        total_treatment = len(df_treatment)
+        total_mapped = df_treatment['mapped'].sum()
+        completion_pct = (total_mapped / total_treatment * 100) if total_treatment > 0 else 0
+        
+        st.subheader("Overall Progress")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Treatment Villages", total_treatment)
+        col2.metric("In Database (Sheet1)", len(st.session_state.annotations))
+        col3.metric("Matched & Mapped", int(total_mapped))
+        col4.metric("Completion", f"{completion_pct:.1f}%")
+        st.progress(completion_pct / 100)
+        
+        st.markdown("---")
+        
+        # Progress by ward
+        st.subheader("Progress by Ward")
+        ward_progress = df_treatment.groupby('ward').agg({
+            'village': 'count',
+            'mapped': 'sum'
+        }).rename(columns={'village': 'total', 'mapped': 'mapped'})
+        ward_progress['remaining'] = ward_progress['total'] - ward_progress['mapped']
+        ward_progress['completion_pct'] = (ward_progress['mapped'] / ward_progress['total'] * 100).round(1)
+        ward_progress = ward_progress.sort_values('completion_pct', ascending=False)
+        
+        for ward, row in ward_progress.iterrows():
+            with st.expander(f"**{ward}** - {int(row['mapped'])}/{int(row['total'])} villages ({row['completion_pct']}%)", 
+               expanded=False):
+
+                col1, col2 = st.columns([4, 1])
                 
-#     if village_name:
-#         st.write(f"**Mapping:** {village_name}")
-#         st.write(f"**Type:** {village_type}")
-#     else:
-#         st.write("**Select a ward and village to start mapping**")
-    
-
-
-# # Handle map clicks
-# # Capture drawn polygons
-# if map_data and map_data.get('last_active_drawing') and village_name:
-#     drawing = map_data['last_active_drawing']
-    
-#     # Store the pending annotation in session state (don't save yet)
-#     st.session_state['pending_annotation'] = {
-#         'village_name': village_name,
-#         'village_type': village_type,
-#         'is_treatment': is_treatment,
-#         'ward_name': selected_ward,
-#         'geometry': drawing['geometry'],
-#         'timestamp': datetime.now().isoformat(),
-#     }
-    
-#     st.info(f"✏️ Polygon drawn for **{village_name}** - Click 'Save to Database' below to confirm")
-
-# # Show save button if there's a pending annotation
-# if 'pending_annotation' in st.session_state and st.session_state['pending_annotation']:
-#     st.markdown("---")
-#     st.subheader("💾 Pending Annotation")
-    
-#     col_preview, col_actions = st.columns([2, 1])
-    
-#     with col_preview:
-#         pending = st.session_state['pending_annotation']
-#         st.write(f"**Village:** {pending['village_name']}")
-#         st.write(f"**Ward:** {pending['ward_name']}")
-#         st.write(f"**Type:** {pending['village_type']}")
-    
-#     with col_actions:
-#         # Check if already mapped (only when user tries to save)
-#         already_mapped = False
-#         if sheets_available:
-#             # Check in current session state first (no API call)
-#             already_mapped = any(
-#                 ann.get('village_name') == pending['village_name'] and 
-#                 ann.get('ward_name') == pending['ward_name'] 
-#                 for ann in st.session_state.annotations
-#             )
+                with col1:
+                    st.progress(row['completion_pct'] / 100)
+                    
+                    unmapped = df_treatment[(df_treatment['ward'] == ward) & (~df_treatment['mapped'])]
+                    if len(unmapped) > 0:
+                        st.write(f"**🔴 Unmapped villages ({len(unmapped)}):**")
+                        for idx, village_row in unmapped.iterrows():
+                            col_village, col_btn = st.columns([3, 1])
+                            with col_village:
+                                st.write(f"  • {village_row['village']}")
+                            with col_btn:
+                                if st.button("📍 Map", key=f"map_{ward}_{village_row['village']}", use_container_width=True):
+                                    st.query_params["ward"] = ward
+                                    st.query_params["village"] = village_row['village']
+                                    st.query_params["tab"] = "mapping"
+                                    st.rerun()
+                    else:
+                        st.success("✅ All villages mapped!")
+                    
+                    mapped = df_treatment[(df_treatment['ward'] == ward) & (df_treatment['mapped'])]
+                    if len(mapped) > 0:
+                        with st.expander(f"✅ Mapped villages ({len(mapped)})", expanded=False):
+                            for _, village_row in mapped.iterrows():
+                                st.write(f"  • {village_row['village']}")
+                
+                with col2:
+                    if row['remaining'] > 0:
+                        st.write("")
+                        st.write("")
+                        if st.button(f"Go to Ward", key=f"jump_ward_{ward}", use_container_width=True):
+                            st.query_params["ward"] = ward
+                            st.query_params["tab"] = "mapping"
+                            st.rerun()
         
-#         if already_mapped:
-#             st.warning("⚠️ Already mapped!")
-#             if st.button("🗑️ Clear Pending", type="secondary", use_container_width=True):
-#                 del st.session_state['pending_annotation']
-#                 st.rerun()
-#         else:
-#             if st.button("💾 Save to Database", type="primary", use_container_width=True):
-#                 if sheets_available:
-#                     success, message = save_annotation_to_sheet(pending)
-#                     if success:
-#                         # Reload from sheet to ensure sync
-#                         st.session_state.annotations = load_annotations_from_sheet()
-#                         st.success(f"✅ {pending['village_name']} saved successfully!")
-#                         del st.session_state['pending_annotation']
-#                         st.rerun()
-#                     else:
-#                         st.error(f"❌ Save failed: {message}")
-#                 else:
-#                     st.session_state.annotations.append(pending)
-#                     st.success("✅ Saved locally (offline mode)")
-#                     del st.session_state['pending_annotation']
-#                     st.rerun()
+        st.markdown("---")
+        
+        # Progress by district
+        st.subheader("Progress by District")
+        district_progress = df_treatment.groupby('district').agg({
+            'village': 'count',
+            'mapped': 'sum'
+        }).rename(columns={'village': 'total', 'mapped': 'mapped'})
+        district_progress['remaining'] = district_progress['total'] - district_progress['mapped']
+        district_progress['completion_pct'] = (district_progress['mapped'] / district_progress['total'] * 100).round(1)
+        
+        st.dataframe(
+            district_progress.style.format({'completion_pct': '{:.1f}%'}).background_gradient(subset=['completion_pct'], cmap='RdYlGn', vmin=0, vmax=100),
+            use_container_width=True
+        )
+
+        # Detailed village list
+        st.subheader("Detailed Village List")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            filter_status = st.selectbox(
+                "Filter by status:",
+                ["All", "Mapped", "Unmapped"]
+            )
+        
+        with col2:
+            filter_ward = st.selectbox(
+                "Filter by ward:",
+                ["All"] + sorted(df_treatment['ward'].unique().tolist())
+            )
+        
+        with col3:
+            filter_district = st.selectbox(
+                "Filter by district:",
+                ["All"] + sorted(df_treatment['district'].unique().tolist())
+            )
+        
+        # Apply filters
+        df_filtered = df_treatment.copy()
+        
+        if filter_status == "Mapped":
+            df_filtered = df_filtered[df_filtered['mapped'] == True]
+        elif filter_status == "Unmapped":
+            df_filtered = df_filtered[df_filtered['mapped'] == False]
+        
+        if filter_ward != "All":
+            df_filtered = df_filtered[df_filtered['ward'] == filter_ward]
+        
+        if filter_district != "All":
+            df_filtered = df_filtered[df_filtered['district'] == filter_district]
+        
+        st.write(f"Showing {len(df_filtered)} of {len(df_treatment)} villages")
+        
+        # Display with action buttons
+        for idx, row in df_filtered.iterrows():
+            col_info, col_action = st.columns([5, 1])
             
-#             if st.button("🗑️ Discard", type="secondary", use_container_width=True):
-#                 del st.session_state['pending_annotation']
-#                 st.rerun()
-    
-#     st.markdown("---")
-
-# # Manual refresh option
-# col_refresh, col_spacer = st.columns([1, 3])
-# with col_refresh:
-#     if st.button("🔄 Refresh from Database", help="Reload annotations from Google Sheets"):
-#         if sheets_available:
-#             st.session_state.annotations = load_annotations_from_sheet()
-#             st.success("✅ Refreshed from database")
-#             st.rerun()
-#         else:
-#             st.warning("⚠️ Offline mode - no database to refresh from")
-
-# st.markdown("---")
-
-
-# # Display current annotations
-# st.subheader(f"Current Annotations ({len(st.session_state.annotations)})")
-
-# if st.session_state.annotations:
-#     # Display mapped villages with delete buttons
-#     st.write("### Mapped Villages")
-#     for idx, ann in enumerate(st.session_state.annotations):
-#         col_info, col_delete = st.columns([4, 1])
-        
-#         with col_info:
-#             village_name = ann.get('village_name', 'Unknown')
-#             village_type = ann.get('village_type', 'Unknown')
-#             ward_name = ann.get('ward_name', 'Unknown')
-#             timestamp = ann.get('timestamp', 'Unknown')
+            with col_info:
+                status_icon = '✅' if row['mapped'] else '🔴'
+                status_text = 'Mapped' if row['mapped'] else 'Unmapped'
+                st.write(f"{status_icon} **{row['village']}** - {row['ward']} ward, {row['district']} district ({status_text})")
             
-#             # Color code based on type
-#             if village_type == 'Treatment':
-#                 st.markdown(f"🔴 **{village_name}** ({village_type}) in {ward_name}")
-#             else:
-#                 st.markdown(f"🔵 **{village_name}** ({village_type}) in {ward_name}")
-#             st.caption(f"Mapped at: {timestamp[:19] if len(timestamp) > 19 else timestamp}")
+            with col_action:
+                if not row['mapped']:
+                    if st.button("📍", key=f"detail_map_{idx}", help=f"Map {row['village']}"):
+                        st.query_params["ward"] = row['ward']
+                        st.query_params["village"] = row['village']
+                        st.query_params["tab"] = "mapping"
+                        st.rerun()
         
-#         with col_delete:
-#             if st.button("🗑️", key=f"delete_{idx}", help="Delete this annotation"):
-#                 ann = st.session_state.annotations[idx]
-#                 if sheets_available:
-#                     if delete_annotation_from_sheet(ann['village_name'], ann['ward_name']):
-#                         # Reload from sheet to ensure sync
-#                         st.session_state.annotations = load_annotations_from_sheet()
-#                         st.rerun()
-#     st.write("---")
-    
-#     # Export buttons
-#     col1, col2 = st.columns(2)
-    
-#     with col1:
-#         # CSV download
-#         df = pd.DataFrame(st.session_state.annotations)
-#         csv = df.to_csv(index=False)
-#         st.download_button(
-#             label="📊 Export Backup CSV",
-#             data=csv,
-#             file_name=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-#             mime="text/csv",
-#             help="Backup only - auto-saved to Google Sheets"
-#         )
-
-#     with col2:
-#         # Map download
-#         map_html = m._repr_html_()
-#         st.download_button(
-#             label="🗺️ Download Map",
-#             data=map_html,
-#             file_name=f"village_map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
-#             mime="text/html"
-#         )
-
-# else:
-#     st.info("No villages mapped yet. Select a ward and village, then draw a polygon around the settlement!")
-# # Instructions
-# with st.expander("📋 Instructions", expanded=False):
-#     st.markdown("""
-#     ### Workflow:
-    
-    
-#     1. **Navigate to specific wards** using the dropdown menu on the left to focus on relevant wards  
-#     2. **Select a village to map** in the dropdown in the sidebar to know which settlements/village to locate
-#     3. **Locate the village** On the map on the right-hand side select the basemap. 
-#         Start with openstreetmap to see if the village is available and to get more context of the location.
-#         Then select  either ESRI or google maps to see the imagery in which you can see the settlements/villages. 
-#     4. **Click on draw a polygon** on left hand side of the map.
-#     5. **Draw lines around the outline of the village/settlement.***
-#         - Once done, click the first point. 
-#     6. **If a village outline is mapped**, this will show-up as 'pending'. 
-#                 Check if you have highlighted the outline correcctly. 
-#     7.  IF the outline is annotated correctly **click save to the database**
-     
-#     """)
+        st.markdown("---")
+        
+        # Export progress report
+        st.subheader("Export Progress Report")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            csv_detailed = df_treatment.to_csv(index=False)
+            st.download_button(
+                label="📊 Download Detailed List (CSV)",
+                data=csv_detailed,
+                file_name=f"treatment_villages_progress_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            summary_data = {
+                'Metric': ['Total Villages', 'Mapped', 'Unmapped', 'Completion %'],
+                'Value': [total_treatment, total_mapped, total_treatment - total_mapped, f"{completion_pct:.1f}%"]
+            }
+            df_summary = pd.DataFrame(summary_data)
+            csv_summary = df_summary.to_csv(index=False)
+            
+            st.download_button(
+                label="📈 Download Summary Report (CSV)",
+                data=csv_summary,
+                file_name=f"mapping_progress_summary_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
