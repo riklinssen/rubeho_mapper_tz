@@ -190,18 +190,6 @@ selected_ward = st.sidebar.selectbox(
 # Filter villages for the selected ward
 treatment_villages_in_ward = filter_villages_for_ward(selected_ward)
 
-# If "All Treatment Wards" selected, show clickable ward list
-if selected_ward == 'All Treatment Wards' and ward_gdf is not None:
-    st.sidebar.markdown("---")
-    
-    st.markdown("**Treatment Wards**")
-    for ward in sorted(treatment_wards):
-        if st.button(f"📍 {ward}", key=f"jump_t_{ward}", use_container_width=True):
-            st.query_params["ward"] = ward
-            st.rerun()
-    
-    st.sidebar.markdown("---")
-
 # Show villages for selected ward only
 if selected_ward not in ['All Treatment Wards']:
     st.sidebar.header(f"Villages in {selected_ward}")
@@ -435,15 +423,6 @@ with col2:
     else:
         st.write("**Select a ward and village to start mapping**")
     
-    # Show statistics
-    st.subheader("Progress")
-    total_annotations = len(st.session_state.annotations)
-    treatment_count = sum(1 for ann in st.session_state.annotations if ann['is_treatment'])
-    control_count = total_annotations - treatment_count
-    
-    st.metric("Total Annotations", total_annotations)
-    st.metric("Treatment Areas", treatment_count)
-    st.metric("Control Areas", control_count)
 
 
 # Handle map clicks
