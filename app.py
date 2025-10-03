@@ -585,6 +585,5 @@ with st.expander("📋 Instructions", expanded=False):
     6. **If a village outline is mapped**, this will show-up as 'pending'. 
                 Check if you have highlighted the outline correcctly. 
     7.  IF the outline is annotated correctly **click save to the database**
-   
-    
+     
     """)
