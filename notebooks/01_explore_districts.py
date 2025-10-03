@@ -779,3 +779,78 @@ json_file = PROCESSED_DATA_DIR / "region_coverage_plan.json"
 with open(json_file, "w") as f:
     json.dump(region_info, f, indent=2, default=str)
 # %%
+
+#quick export treatment and control villages to CSV for Google Sheets
+
+# Create treatment villages dataframe
+treatment_villages_export = []
+for _, row in treatment_locations.iterrows():
+    villages_in_ward = df_program[
+        (df_program['Ward'] == row['Ward']) & 
+        (df_program['District'] == row['District']) &
+        ((df_program['ARR'].astype(str).str.strip().str.upper() == 'YES') | 
+         (df_program['REDD'].astype(str).str.strip().str.upper() == 'YES'))
+    ]['Village'].unique()
+    
+    # Get region name from district_region_mapping
+    region = district_region_mapping.get(row['District'], 'Unknown')
+    
+    for village in villages_in_ward:
+        treatment_villages_export.append({
+            'village_name': village.strip(),
+            'ward_name': row['Ward'].strip(),
+            'district_name': row['District'].strip(),
+            'region_name': region,
+            'type': 'Treatment'
+        })
+
+df_treatment_export = pd.DataFrame(treatment_villages_export)
+
+# Create control villages dataframe
+control_villages_export = []
+for _, row in control_locations.iterrows():
+    villages_in_ward = df_program[
+        (df_program['Ward'] == row['Ward']) & 
+        (df_program['District'] == row['District']) &
+        ~((df_program['ARR'].astype(str).str.strip().str.upper() == 'YES') | 
+          (df_program['REDD'].astype(str).str.strip().str.upper() == 'YES'))
+    ]['Village'].unique()
+    
+    # Get region name from district_region_mapping
+    region = district_region_mapping.get(row['District'], 'Unknown')
+    
+    for village in villages_in_ward:
+        control_villages_export.append({
+            'village_name': village.strip(),
+            'ward_name': row['Ward'].strip(),
+            'district_name': row['District'].strip(),
+            'region_name': region,
+            'type': 'Control'
+        })
+
+df_control_export = pd.DataFrame(control_villages_export)
+
+# Combine both
+df_all_villages = pd.concat([df_treatment_export, df_control_export], ignore_index=True)
+
+# Sort for easier viewing
+df_all_villages = df_all_villages.sort_values(['type', 'district_name', 'ward_name', 'village_name'])
+
+# Save to CSV
+output_csv = PROCESSED_DATA_DIR / "all_villages_for_google_sheets.csv"
+df_all_villages.to_csv(output_csv, index=False)
+
+print(f"✅ Exported villages to CSV:")
+print(f"   File: {output_csv}")
+print(f"   Treatment villages: {len(df_treatment_export)}")
+print(f"   Control villages: {len(df_control_export)}")
+print(f"   Total: {len(df_all_villages)}")
+
+print("\nSummary by type:")
+print(df_all_villages['type'].value_counts())
+
+print("\nSummary by district:")
+print(df_all_villages.groupby(['district_name', 'type']).size())
+
+print("\nFirst 10 rows:")
+print(df_all_villages.head(10))

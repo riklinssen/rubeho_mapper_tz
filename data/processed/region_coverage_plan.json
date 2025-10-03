@@ -1,29 +1,29 @@
 {
   "program_regions": [
-    "Dodoma",
-    "Morogoro"
+    "Morogoro",
+    "Dodoma"
   ],
   "adjacent_regions": [
-    "Iringa",
-    "Pwani",
-    "Njombe",
     "Ruvuma",
-    "Manyara",
+    "Pwani",
     "Singida",
+    "Njombe",
+    "Iringa",
     "Lindi",
-    "Tanga"
+    "Tanga",
+    "Manyara"
   ],
   "all_target_regions": [
-    "Iringa",
-    "Pwani",
-    "Njombe",
     "Ruvuma",
-    "Manyara",
-    "Dodoma",
+    "Pwani",
     "Singida",
+    "Njombe",
     "Morogoro",
+    "Dodoma",
+    "Iringa",
     "Lindi",
-    "Tanga"
+    "Tanga",
+    "Manyara"
   ],
   "coverage_stats": {
     "program_area_km2": 112389.6100501847,
