@@ -505,52 +505,52 @@ with tab1:
     st.markdown("---")
     
     # Display annotations
-    st.subheader(f"Current Annotations ({len(st.session_state.annotations)})")
+    # st.subheader(f"Current Annotations ({len(st.session_state.annotations)})")
     
-    if st.session_state.annotations:
-        st.write("### Mapped Villages")
-        for idx, ann in enumerate(st.session_state.annotations):
-            col_info, col_delete = st.columns([4, 1])
+    # if st.session_state.annotations:
+    #     st.write("### Mapped Villages")
+    #     for idx, ann in enumerate(st.session_state.annotations):
+    #         col_info, col_delete = st.columns([4, 1])
             
-            with col_info:
-                village_name_display = ann.get('village_name', 'Unknown')
-                village_type_display = ann.get('village_type', 'Unknown')
-                ward_name_display = ann.get('ward_name', 'Unknown')
-                timestamp = ann.get('timestamp', 'Unknown')
+    #         with col_info:
+    #             village_name_display = ann.get('village_name', 'Unknown')
+    #             village_type_display = ann.get('village_type', 'Unknown')
+    #             ward_name_display = ann.get('ward_name', 'Unknown')
+    #             timestamp = ann.get('timestamp', 'Unknown')
                 
-                icon = "🔴" if village_type_display == 'Treatment' else "🔵"
-                st.markdown(f"{icon} **{village_name_display}** ({village_type_display}) in {ward_name_display}")
-                st.caption(f"Mapped at: {timestamp[:19] if len(timestamp) > 19 else timestamp}")
+    #             icon = "🔴" if village_type_display == 'Treatment' else "🔵"
+    #             st.markdown(f"{icon} **{village_name_display}** ({village_type_display}) in {ward_name_display}")
+    #             st.caption(f"Mapped at: {timestamp[:19] if len(timestamp) > 19 else timestamp}")
             
-            with col_delete:
-                if st.button("🗑️", key=f"delete_{idx}"):
-                    if sheets_available:
-                        if delete_annotation_from_sheet(ann['village_name'], ann['ward_name']):
-                            st.rerun()
+    #         with col_delete:
+    #             if st.button("🗑️", key=f"delete_{idx}"):
+    #                 if sheets_available:
+    #                     if delete_annotation_from_sheet(ann['village_name'], ann['ward_name']):
+    #                         st.rerun()
         
-        st.write("---")
+    #     st.write("---")
         
-        # Export buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            df = pd.DataFrame(st.session_state.annotations)
-            csv = df.to_csv(index=False)
-            st.download_button(
-                label="📊 Export Backup CSV",
-                data=csv,
-                file_name=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-        with col2:
-            map_html = m._repr_html_()
-            st.download_button(
-                label="🗺️ Download Map",
-                data=map_html,
-                file_name=f"village_map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
-                mime="text/html"
-            )
-    else:
-        st.info("No villages mapped yet. Select a ward and village, then draw a polygon around the settlement!")
+    #     # Export buttons
+    #     col1, col2 = st.columns(2)
+    #     with col1:
+    #         df = pd.DataFrame(st.session_state.annotations)
+    #         csv = df.to_csv(index=False)
+    #         st.download_button(
+    #             label="📊 Export Backup CSV",
+    #             data=csv,
+    #             file_name=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+    #             mime="text/csv"
+    #         )
+    #     with col2:
+    #         map_html = m._repr_html_()
+    #         st.download_button(
+    #             label="🗺️ Download Map",
+    #             data=map_html,
+    #             file_name=f"village_map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+    #             mime="text/html"
+    #         )
+    # else:
+    #     st.info("No villages mapped yet. Select a ward and village, then draw a polygon around the settlement!")
     
     # Instructions
     with st.expander("📋 Instructions", expanded=False):
