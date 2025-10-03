@@ -354,7 +354,7 @@ with tab1:
         st.subheader("Current Context")
         
         if ward_gdf is not None and selected_ward not in ['All Treatment Wards']:
-            st.write(f"**Focus:** {selected_ward}")
+            st.write(f"**Focus ward:** {selected_ward}")
             ward_info = ward_gdf[ward_gdf['ward_name'] == selected_ward]
             if not ward_info.empty:
                 ward_row = ward_info.iloc[0]
@@ -364,8 +364,8 @@ with tab1:
                     st.success("Treatment Ward")
         
         if village_name:
-            st.write(f"**Mapping:** {village_name}")
-            st.write(f"**Type:** {village_type}")
+            st.write(f"**Mapping village:** {village_name}")
+            st.write(f"**Type:** {village_type} village")
         else:
             st.write("**Select a ward and village to start mapping**")
     
