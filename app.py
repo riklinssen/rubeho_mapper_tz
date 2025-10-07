@@ -739,13 +739,13 @@ with tab2:
         
         st.write(f"Showing {len(df_filtered)} of {len(df_treatment)} villages")
         
-        # # Display with action buttons
+        # # Display without action buttons
         for idx, row in df_filtered.iterrows():
             status_icon = '✅' if row['mapped'] else '🔴'
             status_text = 'Mapped' if row['mapped'] else 'Unmapped'
             st.write(f"{status_icon} **{row['village']}** - {row['ward']} ward, {row['district']} district ({status_text})")
                 
-            st.markdown("---")
+        st.markdown("---")
                 
         # Export progress report
         st.subheader("Export Progress Report")
