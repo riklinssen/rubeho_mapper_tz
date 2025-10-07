@@ -740,24 +740,13 @@ with tab2:
         st.write(f"Showing {len(df_filtered)} of {len(df_treatment)} villages")
         
         # # Display with action buttons
-        # for idx, row in df_filtered.iterrows():
-        #     col_info, col_action = st.columns([5, 1])
-            
-        #     with col_info:
-        #         status_icon = '✅' if row['mapped'] else '🔴'
-        #         status_text = 'Mapped' if row['mapped'] else 'Unmapped'
-        #         st.write(f"{status_icon} **{row['village']}** - {row['ward']} ward, {row['district']} district ({status_text})")
-            
-        #     with col_action:
-        #         if not row['mapped']:
-        #             if st.button("📍", key=f"detail_map_{idx}", help=f"Map {row['village']}"):
-        #                 st.query_params["ward"] = row['ward']
-        #                 st.query_params["village"] = row['village']
-        #                 st.query_params["tab"] = "mapping"
-        #                 st.rerun()
-        
-        st.markdown("---")
-        
+        for idx, row in df_filtered.iterrows():
+            status_icon = '✅' if row['mapped'] else '🔴'
+            status_text = 'Mapped' if row['mapped'] else 'Unmapped'
+            st.write(f"{status_icon} **{row['village']}** - {row['ward']} ward, {row['district']} district ({status_text})")
+                
+            st.markdown("---")
+                
         # Export progress report
         st.subheader("Export Progress Report")
         
