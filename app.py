@@ -30,18 +30,57 @@ def load_annotations_from_sheet():
         df = conn.read(worksheet="Sheet1", ttl=0)
         if df.empty or len(df) == 0:
             return []
-        annotations = df.to_dict('records')
-        for ann in annotations:
-            if 'geometry' in ann and isinstance(ann['geometry'], str):
-                try:
-                    ann['geometry'] = json.loads(ann['geometry'])
-                except:
-                    pass
+        
+        annotations = []
+        for idx, row in df.iterrows():
+            ann = row.to_dict()
+            
+            # Handle geometry parsing - it's already a dict-like string from your sheet
+            if 'geometry' in ann and ann['geometry']:
+                geometry_value = ann['geometry']
+                
+                # Skip if it's NaN, None, or empty
+                if pd.isna(geometry_value) or str(geometry_value).strip() in ['', 'nan', 'None']:
+                    st.sidebar.warning(f"Row {idx}: Skipping - empty geometry")
+                    continue
+                
+                # If it's a string, try to parse it
+                if isinstance(geometry_value, str):
+                    try:
+                        # Your data appears to be dict-like strings, try json.loads first
+                        ann['geometry'] = json.loads(geometry_value)
+                    except json.JSONDecodeError:
+                        # If JSON fails, try ast.literal_eval for Python dict strings
+                        try:
+                            import ast
+                            ann['geometry'] = ast.literal_eval(geometry_value)
+                        except (ValueError, SyntaxError) as e:
+                            st.sidebar.error(f"Row {idx} ({ann.get('village_name', 'Unknown')}): Could not parse geometry - {str(e)[:100]}")
+                            continue
+                elif isinstance(geometry_value, dict):
+                    # Already a dict, use as-is
+                    ann['geometry'] = geometry_value
+                else:
+                    st.sidebar.warning(f"Row {idx}: Unexpected geometry type: {type(geometry_value)}")
+                    continue
+            else:
+                # Skip rows without geometry
+                st.sidebar.warning(f"Row {idx}: No geometry column found")
+                continue
+            
+            # Handle boolean conversion for is_treatment
             if 'is_treatment' in ann:
-                ann['is_treatment'] = str(ann['is_treatment']).lower() == 'true'
+                ann['is_treatment'] = str(ann['is_treatment']).strip().upper() in ['TRUE', 'YES', '1', 'T']
+            
+            annotations.append(ann)
+        
+        st.sidebar.success(f"✅ Loaded {len(annotations)} annotations from Sheet1")
         return annotations
+        
     except Exception as e:
-        st.sidebar.warning(f"Could not load from Google Sheets: {e}")
+        st.sidebar.error(f"Could not load from Google Sheets: {e}")
+        import traceback
+        st.sidebar.code(traceback.format_exc())
         return []
 
 def load_reference_villages_from_sheet():
