@@ -161,12 +161,13 @@ except Exception as e:
 # ============================================================================
 
 # Add utils to path
-sys.path.append(str(Path(__file__).parent / "utils"))
+sys.path.append(str(Path(__file__).parent))
 
 try:
-    from map_utils import DataLoader
+    from utils.map_utils import DataLoader
+
     # Initialize data loader
-    DATA_DIR = Path(__file__).parent / "data"
+    DATA_DIR = Path(__file__).parent.parent / "data"
     data_loader = DataLoader(DATA_DIR)
     
     # Load geospatial data with better error handling
